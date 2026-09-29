@@ -1,6 +1,6 @@
 # Rune Details: handoff (2026-09-29, naming updated 2026-09-30)
 
-This repository (folder `mods/RuneDetails`, formerly `mods/RuneDetails`) started as a **clone of `mods/EnchantTooltip`** at
+This repository (folder `mods/RuneDetails`, formerly `mods/RuneInfo`) started as a **clone of `mods/EnchantTooltip`** at
 commit `71c2fd8` (EnchantTooltip 0.4.1). The rune feature grew into its own rabbit hole, so it moves here. The sibling mod
 is now **Enchantment Details** (`mods/EnchantmentDetails`, `EnchantmentDetails.dll`, prefs `[EnchantmentDetails]`,
 settings rows `ED_*`, 1.0.0 in preparation) and keeps only enchantments, gems and facets.
