@@ -47,7 +47,7 @@ function and its override dictionary into RuneDetails.
 - the README
 
 Start the version at 0.1.0. The display name is **"Rune Details"**, the author in `MelonInfo` is lowercase `"vergir"`, and
-the planned GitHub repo is `Vergir/NRftW-RuneDetails`. Mirror Enchantment Details' publishing layout:
+the planned GitHub repo is `vergir/NRftW-RuneDetails`. Mirror Enchantment Details' publishing layout:
 `docs/internal.md`, `docs/nexus-description.bbcode`, `CHANGELOG.md`, `LICENSE` (MIT), `package.ps1`, and a player-facing
 README.
 
