@@ -1,12 +1,16 @@
-# RuneInfo: handoff (2026-09-29)
+# Rune Details: handoff (2026-09-29, naming updated 2026-09-30)
 
-This repository started as a **clone of `mods/EnchantTooltip`** at commit `71c2fd8` (EnchantTooltip 0.4.1). The rune
-feature grew into its own rabbit hole, so it moves here. `mods/EnchantTooltip` keeps only enchantments, gems and facets.
+This repository (folder `mods/RuneDetails`, formerly `mods/RuneDetails`) started as a **clone of `mods/EnchantTooltip`** at
+commit `71c2fd8` (EnchantTooltip 0.4.1). The rune feature grew into its own rabbit hole, so it moves here. The sibling mod
+is now **Enchantment Details** (`mods/EnchantmentDetails`, `EnchantmentDetails.dll`, prefs `[EnchantmentDetails]`,
+settings rows `ED_*`, 1.0.0 in preparation) and keeps only enchantments, gems and facets.
 Your first job is the reverse strip: remove all the enchantment code and keep the runes.
 
 **Do not build and deploy this repo before stripping it.** As cloned, it hooks the same enchantment methods as
-EnchantTooltip. Deploying both would double-patch every enchantment tooltip, and both would add the same `ET_*`
-settings rows and the `[EnchantTooltip]` preference category.
+Enchantment Details. This really happened on 2026-09-30, when two copies of the enchantment code were loaded at once
+(the old `EnchantTooltip.dll` next to `EnchantmentDetails.dll`). Every tooltip line then got two appended notes, and
+the other copy's `ET0` probe sentinels leaked into the text as `□ET0□`. Also check `<game>/Mods` for
+leftover DLLs after renames.
 
 ---
 
@@ -34,15 +38,18 @@ enum name into a label such as "Overall Damage Dealt". Before deleting `Modifier
 function and its override dictionary into RuneDetails.
 
 **Rename:**
-- the assembly and namespace `EnchantTooltip` → `RuneInfo`
+- the assembly and namespace `EnchantTooltip` → `RuneDetails` (`RuneDetails.dll`)
 - `MelonInfo`
-- the preferences category `"EnchantTooltip"` → `"RuneInfo"`
-- the settings-row prefix `ET_` → something like `RI_` (`SettingsRows.Prefix` and the ids)
+- the preferences category `"EnchantTooltip"` → `"RuneDetails"` (display name "Rune Details")
+- the settings-row prefix `ET_` → `RD_` (`SettingsRows.Prefix` and the ids)
 - the csproj `AssemblyName`/`RootNamespace`
-- the self-test file names `EnchantTooltip.selftest*.txt` → `RuneInfo.selftest*.txt`
+- the self-test file names `EnchantTooltip.selftest*.txt` → `RuneDetails.selftest*.txt`
 - the README
 
-Start the version at 0.1.0.
+Start the version at 0.1.0. The display name is **"Rune Details"**, the author in `MelonInfo` is lowercase `"vergir"`, and
+the planned GitHub repo is `Vergir/NRftW-RuneDetails`. Mirror Enchantment Details' publishing layout:
+`docs/internal.md`, `docs/nexus-description.bbcode`, `CHANGELOG.md`, `LICENSE` (MIT), `package.ps1`, and a player-facing
+README.
 
 **References:** the csproj can probably drop `Unity.TextMeshPro` and `UnityEngine.UI` after the strip. Check what the
 rune settings row still needs: SettingsRows uses TMP through `SettingsItemGUIBase.SettingLabel`.
