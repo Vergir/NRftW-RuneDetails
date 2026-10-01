@@ -1,44 +1,14 @@
-# EnchantTooltip
+# Rune Details
 
-MelonLoader mod for No Rest for the Wicked: shows the possible range next to every rolled enchantment value,
-e.g. `Damage increased by 7% (3–10)`, `-6% Stamina cost (3–10)`. Display only; the Quantum simulation is untouched.
+MelonLoader mod for No Rest for the Wicked: appends what a rune really does to its tooltip, e.g. `Heals 40 HP`,
+`up to 350% weapon dmg/s for 4s`, `70% weapon dmg + 30% of typical enemy HP`. Display only; the Quantum simulation is
+untouched. Sibling of Enchantment Details (enchantments, gems, facets).
 
 ## How it works
 
-`EnchantmentDescriptionExtension.GetDescription(IAssetResolutionContext, EnchantmentData, ScalingMeta, bool extractRanges, bool isExalted)`
-(private, RVA 0x8B65EE0 in build 29466) is the hub for every enchantment line: all public overloads (item tooltip,
-stored enchantments), the Radiant Ember boost preview, `EnchantmentConfig.Populate` and the exalt pop-ups call it.
-
-A Harmony postfix renders the same line twice more with `ScalingMeta.Interval` forced to 0 (best roll) and 1.0
-(worst roll), then `RangeMerger` zips the numbers of the three strings. Numbers that differ between best and worst
-get the range; fixed numbers (durations, stacks) and rich-text tags are left alone. If the three strings do not share
-the same template the game's text is kept. Calls with `extractRanges = true` (the game's own "max-min" view: gem
-tooltips, the enchant reroll screen) get no range merge, but still get the hidden numbers below.
-
-### Hidden numbers
-
-Many lines drop numbers the game has already computed ("Drain Health in Combat" = 1/s). `ResolveDescription` runs the value
-processor (`ProcessValue` / `ProcessExalted`) on every packet in slot order before `String.Format` ignores the ones the
-template never references. The mod renders the line once more with those processors returning sentinels, so it knows
-which packets were dropped (any language), reads the enchantment's `ModifierData` for context, and appends
-` (…)` via `HiddenNumbers`:
-
-| Dropped packet | Shown | Skipped |
-|---|---|---|
-| stat value on a line with no placeholder | `1/s` (drain/regen), `100%`, traits `+20% Damage, +25% Attack Stamina Cost` | lines with a `{N}`: extra stats there are dummy status markers |
-| periodic tick | `every 1s` | distance-based ticks (Proud Lance) |
-| status duration | `5s cooldown` | 60s+ debuffs, durations equal to one already in the text |
-| sprint time before an "after Sprinting" status (not a packet) | `after 2s of sprinting` | |
-| NearbyEnemiesScaler (not a packet) | `max 5, within 7m` (radius rounded to whole metres) (cap from the scaler curve, radius from BalanceConfig) | the cap on "no Enemies nearby" curves |
-| ModifierData / target Health-Focus-Stamina ratio threshold | `<50%` when the text says Low/High, else `only below 30% Focus` | 0% / 100% and absolute (Barrier, "Current") conditions |
-
-Data behind it: `analysis/enchant_hidden_numbers.md` (tools/enchant_extract.py).
-
-### Rune details
-
 Rune texts are fixed strings without numbers (`HeroItemDataAsset.GetDescription()`, no packets). A postfix on that
 parameterless method appends what the rune's `HeroRuneData.Actions[0]` really does, walked at runtime with the game's
-context-free resolver `AssetBase.Resolve` (`RuneDetails`, mirrors `tools/rune_extract.py`):
+context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_extract.py`):
 
 | Rune kind | Shown |
 |---|---|
@@ -58,8 +28,7 @@ Details: empty charge curves count as ×1 and real ones are sampled over the spe
 arrays are read from native memory (0x58-byte stride; the interop struct is smaller); repeats follow
 `analysis/cascade_rehit.md`: without `UniqueDamageId` a repeating area hits one enemy at most once per second (damage-id
 dedupe, 60 frames), with it every tick hits; tick times are rounded up to 1/60 s frames (0.15s -> 0.17s).
-Audit: put `name guid` lines (from `analysis/rune_inventory.csv`) in `UserData/EnchantTooltip.selftest.txt`; on load the
-mod writes every rune's text to `EnchantTooltip.selftest.out.txt` once the asset database is ready (first scene load; the first line counts runes without details) (2026-09-28: 262 runes, 251 with details, none odd).
+
 Kicks: their `DamageConfig.CustomDamageProvider` is `ExpectedWeaponDamageAmountProviderNode`; `ResolveOverlapResult`
 (@0x05B8C659) adds its amount to BaseDamage and sets `DamageFlags.IgnoreEntityBaseDamage`, so the hit is
 multiplier × `StatsSystem.ExpectedStats.GetExpectedWeaponDamage(frame, hero)` = 2 × (1 + 5.8 × (weaponItemLevel − 1) / 29)
@@ -69,24 +38,25 @@ The live value comes from the local `HeroView` (`IsLocalPlayer`: `EntityRef` + `
 game reports no mainhand (weapons put away) and its own function would fall back to character level (1760 for Frontflip
 Kick at level 19), so the mod then evaluates `ItemStatsSystem.GetExpectedWeaponDamage(ctx, itemLevel)` for the items in
 `EquipmentSlot.RightHand1..3` and shows their mean.
-Research: `analysis/rune_numbers.md`.
 
-Research (roll encoding, distribution, RVAs) is in the workspace root README, "Enchantment tooltip roll range".
+Research: `analysis/rune_numbers.md` in the workspace root; internals in `docs/internal.md`.
 
-## Preferences (`UserData/MelonPreferences.cfg`, `[EnchantTooltip]`)
+### Self-test
+
+Put `name guid` lines (from `analysis/rune_inventory.csv`) in `UserData/RuneDetails.selftest.txt`; on load the mod
+writes every rune's text to `RuneDetails.selftest.out.txt` once the asset database is ready (first scene load; the first
+line counts runes without details). Last run 2026-09-29: 262 runes, 10 blank (movement and minion runes, Plague Column),
+none odd. Delete both files afterwards.
+
+## Preferences (`UserData/MelonPreferences.cfg`, `[RuneDetails]`)
 
 | Key | Default | |
 |---|---|---|
 | `Enabled` | `true` | Master switch. |
-| `Format` | `{value} <color=#9A9A9A>({worst}–{best})</color>` | Replaces each rolled number. Placeholders `{value}` (as the game prints it), `{worst}` `{best}` (no sign, no `%`), `{roll}` (0-100, 100 = best roll). TMP rich text works. |
-| `ShowRanges` | `true` | In game: Options > Gameplay > **Show Enchantment Ranges**. |
-| `ShowFacetNumbers` | `true` | **Show Facet Numbers**: trait values, e.g. `Heavy (+20% Damage, +25% Attack Stamina Cost)`; also hides the game's facet keyword pop-up (`InventoryItemInfoElement.PopulateKeywordTooltips` postfix). |
-| `ShowDetailedInfo` | `true` | **Show Detailed Enchantment Info**: every other hidden number (see above). |
-| `ShowRuneDetails` | `true` | **Show Rune Details** (see above). |
-| `AddSettingsRows` | `true` | Add the four toggles to Options > Gameplay (after a divider, rows named `ET_*`). |
-| `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | Appended to lines with hidden numbers. |
-| `ShowcaseKey` | `F10` | Screenshot helper, cycles 3 sets then off: each enchantment line is swapped for another that could roll in the same place (same colour, valid on every item type the original is, no duplicates or same-group pairs, unique lines kept, real roll and exalt kept; set 3 exalts one line x4). Display only. |
-| `Debug` | `false` | Log rolled / best / worst / merged text of every enchantment line. |
+| `ShowRuneDetails` | `true` | In game: Options > Gameplay > **Show Rune Details**. |
+| `AddSettingsRows` | `true` | Add that toggle to Options > Gameplay (after a divider, rows named `RD_*`). |
+| `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | Appended to the rune text. |
+| `Debug` | `false` | Log every rune's details when first shown. |
 
 ## Build
 

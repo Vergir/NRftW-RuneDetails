@@ -1,62 +1,15 @@
-# Rune Details: handoff (2026-09-29, naming updated 2026-09-30)
+# Rune Details: internal notes
 
-This repository (folder `mods/RuneDetails`, formerly `mods/RuneInfo`) started as a **clone of `mods/EnchantTooltip`** at
-commit `71c2fd8` (EnchantTooltip 0.4.1). The rune feature grew into its own rabbit hole, so it moves here. The sibling mod
-is now **Enchantment Details** (`mods/EnchantmentDetails`, `EnchantmentDetails.dll`, prefs `[EnchantmentDetails]`,
-settings rows `ED_*`, 1.0.0 in preparation) and keeps only enchantments, gems and facets.
-Your first job is the reverse strip: remove all the enchantment code and keep the runes.
+How the mod works, how to build and test it, the pitfalls found so far and the open ideas. Player-facing text lives in
+`README.md`. Research data is in the workspace root (`analysis/rune_numbers.md`, `analysis/cascade_rehit.md`,
+`analysis/rune_inventory.csv`, `tools/rune_extract.py`).
 
-**Do not build and deploy this repo before stripping it.** As cloned, it hooks the same enchantment methods as
-Enchantment Details. This really happened on 2026-09-30, when two copies of the enchantment code were loaded at once
-(the old `EnchantTooltip.dll` next to `EnchantmentDetails.dll`). Every tooltip line then got two appended notes, and
-the other copy's `ET0` probe sentinels leaked into the text as `□ET0□`. Also check `<game>/Mods` for
-leftover DLLs after renames.
+Code map: `src/RuneDetailsMod.cs` (init, `[assembly: HarmonyDontPatchAll]`, self-test call), `src/RuneDescriber.cs`
+(the rune walker, live kick damage, re-hit wording, self-test), `src/Patches/RuneDescriptionPatches.cs` (the only
+tooltip hook), `src/SettingsRows.cs` + `src/Patches/SettingsPatches.cs` (the `RD_Runes` toggle in Options > Gameplay),
+`src/Prefs.cs` (`[RuneDetails]`).
 
----
-
-## 1. The strip: what to keep, what to delete, what to rename
-
-**Keep, since these are the rune feature:**
-
-| File | What it is |
-|---|---|
-| `src/RuneDetails.cs` | The whole rune walker, live kick damage, re-hit wording and the self-test. |
-| `src/Patches/RuneDescriptionPatches.cs` | A postfix on `HeroItemDataAsset.GetDescription()`, which is the only hook runes need. |
-| `src/Prefs.cs` | Keep `Enabled`, `ShowRuneDetails`, `HiddenFormat` (the grey `(…)` wrapper), `Debug` and `AddSettingsRows`. |
-| `src/SettingsRows.cs` + `src/Patches/SettingsPatches.cs` | Keep only the "Show Rune Details" row. |
-| `src/EnchantTooltipMod.cs` | Keep it, renamed. It has init, `[assembly: HarmonyDontPatchAll]`, and the self-test call in `OnSceneWasLoaded`. |
-
-**Delete, since these are enchantments:**
-- `RangeMerger.cs`, `HiddenNumbers.cs`, `ModifierInfoReader.cs`
-- `Showcase.cs`, `ShowcasePool.cs`, and the F10 key in `OnUpdate`
-- `Patches/EnchantmentDescriptionPatches.cs`, `PacketCapturePatches.cs`, `KeywordTooltipPatches.cs`
-- The prefs `Format`, `ShowRanges`, `ShowFacetNumbers`, `ShowDetailedInfo` and `ShowcaseKey`
-- The three enchantment settings rows
-
-**One dependency to cut:** `RuneDetails.Status()` calls `ModifierInfoReader.Label(statTypeName)` to turn a StatType
-enum name into a label such as "Overall Damage Dealt". Before deleting `ModifierInfoReader.cs`, copy the small `Label`
-function and its override dictionary into RuneDetails.
-
-**Rename:**
-- the assembly and namespace `EnchantTooltip` → `RuneDetails` (`RuneDetails.dll`)
-- `MelonInfo`
-- the preferences category `"EnchantTooltip"` → `"RuneDetails"` (display name "Rune Details")
-- the settings-row prefix `ET_` → `RD_` (`SettingsRows.Prefix` and the ids)
-- the csproj `AssemblyName`/`RootNamespace`
-- the self-test file names `EnchantTooltip.selftest*.txt` → `RuneDetails.selftest*.txt`
-- the README
-
-Start the version at 0.1.0. The display name is **"Rune Details"**, the author in `MelonInfo` is lowercase `"vergir"`, and
-the planned GitHub repo is `vergir/NRftW-RuneDetails`. Mirror Enchantment Details' publishing layout:
-`docs/internal.md`, `docs/nexus-description.bbcode`, `CHANGELOG.md`, `LICENSE` (MIT), `package.ps1`, and a player-facing
-README.
-
-**References:** the csproj can probably drop `Unity.TextMeshPro` and `UnityEngine.UI` after the strip. Check what the
-rune settings row still needs: SettingsRows uses TMP through `SettingsItemGUIBase.SettingLabel`.
-
----
-
-## 2. Workspace, build, test
+## 1. Workspace, build, test
 
 The workspace root is `C:\Users\vergir\Downloads\nrftw`. Its README has the folder layout. Each mod folder is its own
 git repo, and there is **no remote**.
@@ -69,7 +22,7 @@ git repo, and there is **no remote**.
 - **Before launching or closing the game:** check `Get-Process NoRestForTheWicked`. The user plays with friends, and
   other sessions share the game.
 - **Rune self-test:** the audit that caught most of the bugs.
-  1. Write `name guid` lines to `<game>/UserData/EnchantTooltip.selftest.txt`, generated from
+  1. Write `name guid` lines to `<game>/UserData/RuneDetails.selftest.txt`, generated from
      `analysis/rune_inventory.csv` (all 262 runes).
   2. On the first scene load once the asset database is ready, the mod writes every rune's text to
      `…selftest.out.txt`. Line 1 is `# N runes without details`.
@@ -86,7 +39,7 @@ git repo, and there is **no remote**.
   - `EntityView` is ambiguous; use `Il2CppMoon.Forsaken.EntityView`.
   - To use a `Frame` as an `IAssetResolutionContext` parameter, wrap it: `new IAssetResolutionContext(frame.Pointer)`.
 
-## 3. Hard-won pitfalls (read these)
+## 2. Hard-won pitfalls (read these)
 
 1. **Never Harmony-patch an IL2CPP method with a struct parameter passed by `ref`/`in`/`out`, and treat big by-value
    structs the same way.** A parameterless prefix on `InventoryItemInfoElement.PopulateEnchantmentsInfo(Frame, ref
@@ -96,7 +49,7 @@ git repo, and there is **no remote**.
 2. **MelonLoader auto-applies every `[HarmonyPatch]` class in a mod.** Keep `[assembly: HarmonyDontPatchAll]` and call
    `PatchAll` explicitly. Otherwise an "inert/disabled" build still patches.
 3. **The interop struct arrays for `DamageBalanceData[]` are wrong after element 0.** The native stride is 0x58; the
-   interop struct is smaller. `RuneDetails.DamageArray` reads the fields straight from native memory: base
+   interop struct is smaller. `RuneDescriber.DamageArray` reads the fields straight from native memory: base
    `array.Pointer + 0x20 + i*0x58`, Pct at +0x8, Comp at +0x10.
 4. **Empty `FPCurve` means ×1, not ×0.** Check `curve.Count` before evaluating.
 5. **Commits in mod repos:** no Claude co-author trailer and no Claude mention. The user's standing rule overrides the
@@ -105,7 +58,7 @@ git repo, and there is **no remote**.
 7. **Game cheats are compiled out.** `ExecuteCheatPlayerCommand` is a shared `ret` stub, so items can't be spawned for
    testing. Don't inject items into the Quantum sim either: it risks desync and a corrupted save.
 
-## 4. How a rune tooltip is built
+## 3. How a rune tooltip is built
 
 The research is in `analysis/rune_numbers.md` and the extractor in `tools/rune_extract.py`. The extractor imports
 `enchant_extract.py` and `stats_extract.py`; it has a corrected qdb reader `SafeReader` and names qdb types by field
@@ -116,7 +69,7 @@ set. The data table is `analysis/rune_inventory.csv`, 262 rows.
 - `RuneScreen` shows only the paragraph after the first newline. So always append in-line; never add `\n`.
 - **Asset lookup without a context:** `Il2Cpp.AssetBase.Resolve` is a static `Func<AssetGuid, AssetObject>`.
   `HeroRuneData.Actions[0]` is the whole behaviour.
-- **The walker (`RuneDetails.Walker.Action`) covers:**
+- **The walker (`RuneDescriber.Walker.Action`) covers:**
   - melee `TimelineData.WeaponColliders`
   - `ProjectileEvents` (`OverrideProjectile` → `ProjectileData.StrikeDamageData[]` by charge level; no override means
     the ammo decides)
@@ -217,7 +170,7 @@ armor.
 - **Charged Bolt, Fire Wall, Plague Launch and Frost Stream** drop from level 21 (staff/wand), so the user couldn't
   test them at level 19.
 
-## 5. The user's preferences for this mod
+## 4. Wording conventions
 
 - **Concise tooltips.** Tooltip space matters.
   - Rune text is appended in grey via `HiddenFormat` (` <color=#9A9A9A>({extra})</color>`).
@@ -235,7 +188,7 @@ armor.
   runes and test on the hub dummy if asked, and they expect a clear test protocol.
 - **They want it tested before shipping.** Screenshots are fine when they're not playing something else.
 
-## 6. Open items and ideas
+## 5. Open items and ideas
 
 1. **Plague Column** shows nothing. It's a trap entity (`plagueColumnTrapData`) with a BoneBolt projectile (×0.8/×2 by
    charge) and a 0.15 ExpectedHealth payload. The walker's `Entity()` handles cascades and projectiles, not traps.
@@ -252,7 +205,3 @@ armor.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
    it could be cached per frame.
 8. **In-game settings row text** for the new mod, and a README written for players.
-
-Memory notes the user's Claude setup keeps (under `~/.claude/projects/C--Users-vergir-Downloads-nrftw/memory/`) cover
-these topics too: `nrftw-enchant-tooltip-range.md` (mixed rune + enchant history), `nrftw-melonloader-harmony-pitfalls.md`,
-`no-claude-attribution.md`, `confirm-before-publishing.md`.

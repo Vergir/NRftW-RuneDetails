@@ -1,7 +1,7 @@
 using HarmonyLib;
 using Il2CppMoon.Forsaken;
 
-namespace EnchantTooltip.Patches;
+namespace RuneDetails.Patches;
 
 /// <summary>Adds our rows to the Gameplay tab. The game builds settings screens when a scene loads, not on menu open.</summary>
 [HarmonyPatch(typeof(GameplaySettingsTab), nameof(GameplaySettingsTab.Initialize))]
@@ -11,6 +11,6 @@ internal static class GameplaySettingsTabInitializePatch
     {
         if (!Prefs.Enabled.Value || !Prefs.AddSettingsRows.Value) return;
         try { SettingsRows.AddTo(__instance.m_controls); }
-        catch (System.Exception e) { EnchantTooltipMod.Log.Error("Adding settings rows failed: " + e); }
+        catch (System.Exception e) { RuneDetailsMod.Log.Error("Adding settings rows failed: " + e); }
     }
 }

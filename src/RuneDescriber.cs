@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Il2CppInterop.Runtime.InteropTypes;
 using Il2CppMoon.Forsaken;
 using Il2CppPhoton.Deterministic;
 using Il2CppQuantum;
 using Math = System.Math;
 
-namespace EnchantTooltip;
+namespace RuneDetails;
 
 /// <summary>
 /// What a rune really does, read from its Quantum action data (the rune's tooltip is a fixed text without numbers).
@@ -16,7 +17,7 @@ namespace EnchantTooltip;
 /// heals before the Healing stat, damage as a multiple of the weapon's Damage stat (runes have no level).
 /// Assets are looked up with the game's context-free resolver AssetBase.Resolve.
 /// </summary>
-internal static class RuneDetails
+internal static class RuneDescriber
 {
     private const float One = 65536f;
     private static readonly Dictionary<string, string?> Cache = new();
@@ -31,9 +32,9 @@ internal static class RuneDetails
         try { text = Describe(asset.HeroItemData?.TryCast<HeroRuneData>()); }
         catch (Exception e)
         {
-            if (Failed.Add(key)) EnchantTooltipMod.Log.Warning($"Rune details for {key}: {e.Message}");
+            if (Failed.Add(key)) RuneDetailsMod.Log.Warning($"Rune details for {key}: {e.Message}");
         }
-        if (Prefs.Debug.Value) EnchantTooltipMod.Log.Msg($"rune {key}: {text ?? "(none)"}");
+        if (Prefs.Debug.Value) RuneDetailsMod.Log.Msg($"rune {key}: {text ?? "(none)"}");
         Cache[key] = text;
         return text == null ? null : ResolveLive(text);
     }
@@ -45,11 +46,11 @@ internal static class RuneDetails
         return action == null ? null : new Walker().Action(action);
     }
 
-    /// <summary>Development audit: if UserData/EnchantTooltip.selftest.txt exists (lines "name guid", e.g. from
-    /// analysis/rune_inventory.csv), describe every listed rune and write UserData/EnchantTooltip.selftest.out.txt.</summary>
+    /// <summary>Development audit: if UserData/RuneDetails.selftest.txt exists (lines "name guid", e.g. from
+    /// analysis/rune_inventory.csv), describe every listed rune and write UserData/RuneDetails.selftest.out.txt.</summary>
     public static void SelfTest()
     {
-        string input = System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.UserDataDirectory, "EnchantTooltip.selftest.txt");
+        string input = System.IO.Path.Combine(MelonLoader.Utils.MelonEnvironment.UserDataDirectory, "RuneDetails.selftest.txt");
         if (_selfTestDone || !System.IO.File.Exists(input) || Il2Cpp.AssetBase.Resolve == null) return;
         var output = new List<string>();
         output.Add($"# live expected weapon damage: {LiveExpectedWeaponDamage()?.ToString() ?? "n/a"}");
@@ -60,14 +61,14 @@ internal static class RuneDetails
             string text;
             try { text = ResolveLive(Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid })) ?? "(none)"); }
             catch (Exception e) { text = "ERROR " + e.Message; }
-            output.Add($"{line.Substring(0, cut)}	{text}");
+            output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
         }
         int blank = output.Count(l => l.EndsWith("(none)"));
         if (blank == output.Count(l => !l.StartsWith("#"))) return; // asset database not ready yet: retry on the next scene
         _selfTestDone = true;
         output.Insert(0, $"# {blank} runes without details");
         System.IO.File.WriteAllLines(System.IO.Path.ChangeExtension(input, ".out.txt"), output);
-        EnchantTooltipMod.Log.Msg($"Rune self-test: {output.Count} runes written to EnchantTooltip.selftest.out.txt");
+        RuneDetailsMod.Log.Msg($"Rune self-test: {output.Count} runes written to RuneDetails.selftest.out.txt");
     }
 
     private const char Tok = '';
@@ -130,7 +131,7 @@ internal static class RuneDetails
         }
         catch (Exception e)
         {
-            if (Failed.Add("live")) EnchantTooltipMod.Log.Warning("Live expected weapon damage: " + e.Message);
+            if (Failed.Add("live")) RuneDetailsMod.Log.Warning("Live expected weapon damage: " + e.Message);
             return null;
         }
     }
@@ -169,6 +170,21 @@ internal static class RuneDetails
 
     private static string Pct(float mult) => Math.Round(mult * 100).ToString(CultureInfo.InvariantCulture) + "%";
 
+    private static readonly Regex CamelSplit = new("(?<=[a-z])(?=[A-Z])", RegexOptions.Compiled);
+
+    // Stat labels where the enum name reads badly (the rest is the enum name split at capitals).
+    private static readonly Dictionary<string, string> Labels = new()
+    {
+        ["FocusGainOnHit"] = "Focus on Hit",
+        ["FocusGainOnBlock"] = "Focus on Block",
+        ["PoiseDamageOnBlock"] = "Poise on Block",
+        ["StaminaRegen"] = "Stamina Recovery",
+    };
+
+    /// <summary>A StatType enum name as a label, e.g. OverallDamageDealt -> "Overall Damage Dealt".</summary>
+    private static string Label(string enumName) =>
+        Labels.TryGetValue(enumName, out var l) ? l : CamelSplit.Replace(enumName, " ");
+
     private sealed class Walker
     {
         private readonly List<string> _heals = new(), _buffs = new(), _damage = new(), _costs = new();
@@ -176,8 +192,8 @@ internal static class RuneDetails
         private DamageBalanceData _base;
         private bool _charged;
         private float _minCharge = 1, _maxCharge = 1;
-        private bool _channelled;
-        private bool _levelDamage; // DamageConfig.CustomDamageProvider = ExpectedWeaponDamageAmountProviderNode // ChargedMagicActionData that drains a resource while held (beams, auras)
+        private bool _channelled; // ChargedMagicActionData that drains a resource while held (beams, auras)
+        private bool _levelDamage; // DamageConfig.CustomDamageProvider = ExpectedWeaponDamageAmountProviderNode
         private string? _multishot; // "3–10": BowMultishotAttackData fires Min..MaxShots arrows depending on windup
 
         public string? Action(ActionData action)
@@ -435,7 +451,7 @@ internal static class RuneDetails
                 if (stat == null || curve == null) continue;
                 float v = F(curve.Evaluate(new FP { RawValue = 0 }));
                 if (Math.Abs(v) < 0.0001f) continue;
-                string label = ModifierInfoReader.Label(stat.StatType.ToString());
+                string label = Label(stat.StatType.ToString());
                 string sign = v > 0 ? "+" : "";
                 effects.Add(stat.ModificationType == StatModificationType.Base ? $"{sign}{N(v)} {label}" : $"{sign}{Pct(v)} {label}");
             }

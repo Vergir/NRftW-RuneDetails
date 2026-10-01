@@ -5,22 +5,22 @@ using Il2CppMoon.Forsaken;
 using MelonLoader;
 using UnityEngine;
 
-namespace EnchantTooltip;
+namespace RuneDetails;
 
 /// <summary>
-/// Our checkboxes at the end of Options > Gameplay, after a divider. Same technique as the DailiesResetTimer mod
+/// Our checkbox at the end of Options > Gameplay, after a divider. Same technique as the DailiesResetTimer mod
 /// (its docs/internal.md, "Settings rows").
 /// The game's own toggles need a PlayerSetting&lt;bool&gt; built on a ref-returning delegate, which a mod cannot supply;
 /// AddKeyboardAndMouseSchemeToggleItem makes the same toggle row from a plain Action&lt;bool&gt;.
 /// </summary>
 internal static class SettingsRows
 {
-    public const string Prefix = "ET_";
+    public const string Prefix = "RD_";
     private const PlayerSettingCategory Category = PlayerSettingCategory.Gameplay;
     // Alternate1: the only scheme style that does not arm the game's "preview keyboard scheme" button while hovered.
     private const KeyboardAndMouseStyle ToggleStyle = KeyboardAndMouseStyle.Alternate1;
-    private const string SpacerId = "ET_Spacer", RangesId = "ET_Ranges", FacetsId = "ET_Facets", DetailsId = "ET_Details", RunesId = "ET_Runes";
-    private static readonly string[] AllIds = { SpacerId, RangesId, FacetsId, DetailsId, RunesId };
+    private const string SpacerId = "RD_Spacer", RunesId = "RD_Runes";
+    private static readonly string[] AllIds = { SpacerId, RunesId };
 
     private static readonly Dictionary<string, LocalizedMessage> _messages = new Dictionary<string, LocalizedMessage>();
 
@@ -33,30 +33,20 @@ internal static class SettingsRows
 
     public static void AddTo(SettingsScreenControls? controls)
     {
-        if (controls == null) { EnchantTooltipMod.Log.Warning("GameplaySettingsTab.m_controls is null"); return; }
+        if (controls == null) { RuneDetailsMod.Log.Warning("GameplaySettingsTab.m_controls is null"); return; }
         var content = GameplayContent(controls);
-        if (content == null) { EnchantTooltipMod.Log.Warning("Gameplay tab has no content root yet"); return; }
+        if (content == null) { RuneDetailsMod.Log.Warning("Gameplay tab has no content root yet"); return; }
 
         ForgetRows(controls, oursToo: false);
-        if (content.Find(RangesId) != null) return;
+        if (content.Find(RunesId) != null) return;
         RemoveRegistryEntries(controls);
 
         AddSpacer(controls, content);
-        AddToggle(controls, content, RangesId, "Show Enchantment Ranges",
-            "Show the worst and best possible roll after every rolled enchantment value, e.g. 7% (3-10) (Enchant Tooltip).",
-            Prefs.ShowRanges);
-        AddToggle(controls, content, FacetsId, "Show Facet Numbers",
-            "Show what a facet does in numbers, e.g. Heavy (+20% Damage, +25% Attack Stamina Cost), instead of the facet pop-up (Enchant Tooltip).",
-            Prefs.ShowFacetNumbers);
-        AddToggle(controls, content, DetailsId, "Show Detailed Enchantment Info",
-            "Add numbers the enchantment text leaves out: drain per second, tick intervals, cooldowns, Low Health / Focus thresholds, "
-                + "sprint time, nearby enemy cap and radius (Enchant Tooltip).",
-            Prefs.ShowDetailedInfo);
         AddToggle(controls, content, RunesId, "Show Rune Details",
             "Show what a rune really does: heal amounts, buffs, damage as a percentage of weapon damage, focus drain while "
-                + "channelling (Enchant Tooltip).",
+                + "channelling (Rune Details).",
             Prefs.ShowRuneDetails);
-        EnchantTooltipMod.Log.Msg("Added Enchant Tooltip rows to Options > Gameplay");
+        RuneDetailsMod.Log.Msg("Added the Rune Details row to Options > Gameplay");
     }
 
     /// <summary>Hot reload / unload: destroy our rows on every live settings screen and free their registry keys.</summary>

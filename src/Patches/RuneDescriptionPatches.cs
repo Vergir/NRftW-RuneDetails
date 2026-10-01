@@ -1,6 +1,6 @@
 using HarmonyLib;
 
-namespace EnchantTooltip.Patches;
+namespace RuneDetails.Patches;
 
 /// <summary>
 /// Every rune text comes from HeroItemDataAsset.GetDescription() (no parameters, not virtual; callers: the item tooltip,
@@ -17,12 +17,12 @@ internal static class RuneDescriptionPatch
         {
             var rune = __instance.TryCast<Il2Cpp.HeroRuneDataAsset>();
             if (rune == null) return;
-            var extra = RuneDetails.Describe(rune);
+            var extra = RuneDescriber.Describe(rune);
             if (extra != null) __result = __result.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", extra);
         }
         catch (System.Exception e)
         {
-            EnchantTooltipMod.Log.Warning("Rune description postfix: " + e.Message);
+            RuneDetailsMod.Log.Warning("Rune description postfix: " + e.Message);
         }
     }
 }
