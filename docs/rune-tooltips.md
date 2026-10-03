@@ -209,7 +209,7 @@ Bow and Greatbow. 18 runes.
 | Skyburst Volley | 100 Focus | Leap into the air and loose five arrows in a brilliant bursting spread, raining destruction across all caught beneath your descent. | 5 shots × 170% weapon dmg |
 | Skyfall Shot | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 300% weapon dmg + 300% in 5m |
 
-[1] The skyward arrow does nothing; 10 arrows fall over ~2s onto a 2m circle 7m ahead, each with its own explosion (no falloff). Rune hits use Rune Damage, not Attack Damage: 24-25 vs 29-30 for normal arrows in game.  
+[1] The skyward arrow does nothing; 10 arrows fall over ~2s onto a 2m circle 7m ahead, each with its own explosion (no falloff): 24-25 on the hub dummy vs 29-30 for the Fungus bow's ×1.25 first shot.  
 
 ## Staff & Wand runes: Fire
 

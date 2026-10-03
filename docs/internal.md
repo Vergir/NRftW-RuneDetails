@@ -183,9 +183,14 @@ armor.
 - Projectiles get `DamageFlags.SpecialAttack` when the hero is executing a weapon special (`ProjectileUtils.Spawn`
   @0x5B55F90 reads the hero flags; `DamageAPI.ApplyMetaData` @0x5C09950 ORs it in at hit time). With SpecialAttack,
   `GetWeaponDamageAmount` @0x5C0A890 applies no Attack / Normal Attack Damage (stats 96/97) and `GetDamage` reads
-  Rune Damage (99) instead. Bow shots never use Charged Attack Damage (98).
-- In-game 2026-10-02: normal arrows 29–30, Arrowstorm arrows 24–25 on the dummy (×1.2 = an Attack Damage bonus the
-  rune hits don't get). Arrowstorm's arrows: real `ProjectileUtils.Spawn` with the bow as weapon, explosion r 1.5 m with
+  Rune Damage (99) instead. Charged Attack Damage (98) replaces 97 only with `DamageFlags.ChargeAttack`: melee
+  windups (`MeleeAttackWindupData`, hero flag 0x10) and full-draw auto-fire of `BowAttackData` bows
+  (`ModifyProjectileOnRelease` @0x5A198B0 sets 0x2000 in state 2, ChargedResolve). Armor Penetration (110) applies to
+  every hit with a hero proxy, runes included (`PrecalculateDamage` @0x5C0F9D0 has no flag check).
+- In-game 2026-10-02: normal arrows 29–30, Arrowstorm arrows 24–25 on the dummy. Explained (2026-10-03) by the bow,
+  not by stats: the player's Fungus Strung Bow's first normal shot is `lobbedShot` with ×1.25 (follow-ups
+  `bowAttackFollowUp` ×0.75, run `bowRollAttackA` ×1.0), Arrowstorm's arrows ×1.0; 29.5/24.5 ≈ 1.20 is 1.25 within
+  integer display. (An earlier guess blamed an Attack Damage bonus; the character sheet shows none.) Arrowstorm's arrows: real `ProjectileUtils.Spawn` with the bow as weapon, explosion r 1.5 m with
   no falloff from the centre, own damage id per arrow (all 10 can hit). They spawn after the action ends and keep the
   SpecialAttack flag until the hero starts another action.
 - Bow distance falloff (`ProjectileData.GetDamageFalloffMultiplier` @0x5B51FA0, bows only): ×1 to 6 m, then

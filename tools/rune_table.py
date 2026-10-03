@@ -41,7 +41,7 @@ NOTES = {
                      "after 15s or when an enemy touches it. The bolt's direct hit is ~0 (fired without a weapon); only its "
                      "Plague payload counts: 9-10 per needle on the hub dummy in game, = 15% of 70 minus Plague resistance."),
     "arrowstorm": ("The skyward arrow does nothing; 10 arrows fall over ~2s onto a 2m circle 7m ahead, each with its own "
-                   "explosion (no falloff). Rune hits use Rune Damage, not Attack Damage: 24-25 vs 29-30 for normal arrows in game."),
+                   "explosion (no falloff): 24-25 on the hub dummy vs 29-30 for the Fungus bow's ×1.25 first shot."),
     "frostStream": SEGMENTS, "inferno": SEGMENTS,
     "static": "Fires a chain lightning (70% weapon dmg) every 2.5s through a periodic modifier; the mod shows only the duration.",
     "fireWalk": "Leaves a damaging fire trail through a periodic modifier; the mod shows only the duration.",
