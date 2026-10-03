@@ -15,7 +15,7 @@ Utility slot. Heals, buffs, auras and movement. The four Afflictions are Staff/W
 | Rune | Cost | Game text | Rune Details adds |
 |---|---|---|---|
 | Blink | 25 Focus | Harness mystical energy to teleport forward a short distance, even passing through enemies to evade or position strategically. | *(nothing)* |
-| Channel | 25 Health | Charge this spell to draw in sacred energy, sacrificing health to gain focus and amplify your mystical power. | Restores 38 Focus/s for 60 Health/s, up to 5s |
+| Channel | 25 Health | Charge this spell to draw in sacred energy, sacrificing health to gain focus and amplify your mystical power. | Restores 38 Focus/s for 48 Health/s, up to 5s |
 | Cold Enchantment | 50 Focus | Infuse your weapon with the essence of cold, chilling foes with frosty strikes that slow their advance. | lasts 60s |
 | Cold Resistance | 50 Focus | Fortify yourself against cold-based attacks, reducing ice damage and increasing your resilience to freezing effects. | +25% Ice Armor for 120s |
 | Damage Surge | 100 Focus | Temporarily boost your Attack, unleashing a surge of strength that increases your damage output for 120s. | +20% Overall Damage Dealt for 120s |
@@ -23,7 +23,7 @@ Utility slot. Heals, buffs, auras and movement. The four Afflictions are Staff/W
 | Electric Resistance | 50 Focus | Enhance your defenses against lightning-based attacks, reducing lightning damage and preventing shock status. | +25% Lightning Armor for 120s |
 | Focus Halo | 100 Focus | Elevate your Focus, enhancing your Cerim abilities by increasing your maximum focus points for 120s. | +100 Max Focus for 120s |
 | Heal | 50 Focus | Spend focus to restore your health, calling on inner power to recover from wounds. | Heals 40 HP |
-| Heal Aura | 25 Focus | Charge this spell to convert focus into health, surrounding yourself with a restorative aura that heals you over time. | Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s |
+| Heal Aura | 25 Focus | Charge this spell to convert focus into health, surrounding yourself with a restorative aura that heals you over time. | Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s |
 | Heat Enchantment | 50 Focus | Imbue your weapon with fiery energy, igniting your strikes to scorch enemies and set the battlefield ablaze. | lasts 60s |
 | Heat Resistance | 50 Focus | Gain resistance to heat-based attacks, reducing fire damage and improving your survival against fiery blows. | +25% Fire Armor for 120s |
 | Illuminate | 25 Focus | Summon a radiant light that follows you, illuminating dark areas and revealing hidden paths. | lasts 180s |
@@ -328,20 +328,20 @@ In the database, but no player can get them: `CanBeDropped` is off, no weapon ha
 | Rune | Cost | Game text | Rune Details adds |
 |---|---|---|---|
 | Arrow · `arrow` | – | A fundamental archer’s skill, release a swift and precise arrow aimed straight at the heart of your adversary. | 100% weapon dmg |
-| Bolt · `bolt` | 25 Focus | Cast a crackling lightning bolt that electrifies enemies on impact. Charge it to increase its shocking power and deal more damage. | 133% weapon dmg/s for 20 Focus/s |
+| Bolt · `bolt` | 25 Focus | Cast a crackling lightning bolt that electrifies enemies on impact. Charge it to increase its shocking power and deal more damage. | 133% weapon dmg/s for 19 Focus/s |
 | Cold Affliction · `coldAffliction` | 50 Focus | Envelop enemies in biting frost, increasing the ice damage and freeze buildup they receive for a short duration. | 100% weapon dmg |
-| Curse · `curse` | 25 Focus | Emit a plague beam, infecting all foes in its path. Active until releasing the Rune button. | 133% weapon dmg/s for 20 Focus/s |
-| Deflect · `deflect` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s |
-| Eagle Eye · `eagleEye` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s |
+| Curse · `curse` | 25 Focus | Emit a plague beam, infecting all foes in its path. Active until releasing the Rune button. | 133% weapon dmg/s for 19 Focus/s |
+| Deflect · `deflect` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s |
+| Eagle Eye · `eagleEye` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s |
 | Electric Affliction · `electricAffliction` | 50 Focus | Jolt enemies with unstable currents, increasing the lightning damage and shock buildup they receive for a short duration. | 100% weapon dmg |
 | Evade · `evade` | – | Swiftly evade attacks, leaving behind a trail of elemental energy that disorients and weakens enemies. | *(nothing)* |
 | Evade Jump · `evadeJump` | 40 Stamina | Swiftly evade attacks, leaving behind a trail of elemental energy that disorients and weakens enemies. | *(nothing)* |
 | Frost Blade · `frostBlade` | 100 Focus | Manifest a massive frozen blade and spin wildly, striking nearby enemies with chilling force. | 3 hits × 200% weapon dmg |
 | Gale of Speed · `galeOfSpeed` | 100 Focus | Harness the power of the wind to increase your movement Speed, allowing you to traverse the battlefield swiftly for 120s. | +20% Overall Damage Dealt for 120s |
 | Heat Affliction · `heatAffliction` | 50 Focus | Afflict enemies with smoldering heat, increasing the fire damage and fire buildup they receive for a short duration. | 100% weapon dmg |
-| Life Leech · `lifeLeech` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s |
+| Life Leech · `lifeLeech` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s |
 | Plague Affliction · `plagueAffliction` | 50 Focus | Infect enemies with virulent decay, increasing the plague damage and poison buildup they receive for a short duration. | 100% weapon dmg |
-| Rejuvenate · `rejuvenate` | 1 Health | Channels a mystical energy, allowing you to restore fallen foes back to strength. | drains 16 Health/s |
+| Rejuvenate · `rejuvenate` | 1 Health | Channels a mystical energy, allowing you to restore fallen foes back to strength. | drains 13 Health/s |
 | Skyfall Shot · `charge` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 400% weapon dmg |
 | Skyfall Shot · `pushBack` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 350% weapon dmg |
 | Skyfall Shot · `shieldRush` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 350% weapon dmg |
@@ -352,7 +352,7 @@ In the database, but no player can get them: `CanBeDropped` is off, no weapon ha
 | Skyfall Shot · `specialMultiHit` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 400% weapon dmg |
 | Skyfall Shot · `specialMultiHitThreeHit` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 400% weapon dmg |
 | Skyfall Shot · `specialSlam` | 100 Focus | Leap high into the air and drive an arrow straight down, unleashing a violent shockwave on impact that ripples outward from the point of impact. | 400% weapon dmg |
-| Slow Aura · `slowAura` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s |
+| Slow Aura · `slowAura` | 25 Focus | *(only the generic "Slot this Rune…" line)* | Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s |
 | Spectre · `spectre` | 50 Focus | *(only the generic "Slot this Rune…" line)* | *(nothing)* |
 | Throw · `throw` | 100 Focus | Hurl your weapon with tremendous force, smashing through enemies in its path before returning to your hand. | 400% weapon dmg |
 | (no name) · `critBackstab` | 50 Focus | Combine a spinning leg kick with a slashing strike at the end, stunning enemies before delivering a damaging blow. | 100% weapon dmg in 5m |

@@ -554,21 +554,33 @@ internal static class RuneDescriber
             return max;
         }
 
-        /// <summary>Raw FP time a sim frame takes off a tick timer, as measured in game. The timers reset to their
-        /// interval after each tick (CascadeInstanceComponent.Update @0x5A2B160, ChargedMagicActionData.UpdateCharge
-        /// @0x5A1EC80), so a tick comes every ceil(interval / frame) frames, at least one. Measured 2026-10-03 (user's
-        /// 60 fps video, Heal Aura, no gear): 78 HP and 100 Focus in 2.52s = 1.5 HP and 2 Focus every 3 frames (20/s) for
-        /// the 0.05s (3277 / 3276 raw) timers. With 1092 (65536/60 truncated) that would be 4 frames, 15/s, so the
-        /// effective step is 1093 (a reading of the code that assumed 1092 was wrong).</summary>
-        private const double FrameRaw = 1093;
-
-        private static int TickFrames(long raw) => Math.Max(1, (int)Math.Ceiling(raw / FrameRaw));
+        /// <summary>Raw FP time a sim frame takes off a cascade's repeat timer, as measured in game: the timer resets to
+        /// its interval after each tick (CascadeInstanceComponent.Update @0x5A2B160), so a tick comes every
+        /// ceil(interval / frame) frames, at least one. Measured 2026-10-03 (user's 60 fps videos, Heal Aura, no gear):
+        /// 1.5 HP every 3 frames (102 heals in 5.07s, 20/s) for the 0.05s (3277 raw) timer. A code reading with the
+        /// 1092 step (65536/60 truncated) predicted 4 frames and was wrong, so the effective step is 1093.</summary>
+        private const double CascadeFrameRaw = 1093;
 
         /// <summary>Seconds between a cascade's ticks: 0.05s -> 3 frames (20/s), 0.01s -> every frame. 0 = no repeat.</summary>
-        private static float CascadeEvery(long raw) => raw <= 0 ? 0 : TickFrames(raw) / 60f;
+        private static float CascadeEvery(long raw) => raw <= 0 ? 0 : Math.Max(1, (int)Math.Ceiling(raw / CascadeFrameRaw)) / 60f;
 
-        /// <summary>Ticks per second of a channelling drain, at attack speed 1 (attack speed rescales the action).</summary>
-        private static float DrainTicksPerSecond(long raw) => raw <= 0 ? 0 : 60f / TickFrames(raw);
+        /// <summary>Ticks per second of a channelling drain, on a different clock than the heal: ChargedMagicActionData.
+        /// UpdateCharge @0x5A1EC80 runs its timer on the action's segmented delta (1092 or 1093 raw, 65536 per 60 frames,
+        /// ActionSystem.ResolveSegmentedActionDeltaTime @0x5B997C0), pays when it drops below 0 and resets it to
+        /// ChargingCostTime: 0.05s (3276 raw) -> 3 or 4 frames, ~16.1/s. Measured 2026-10-03: Heal Aura drained 161 Focus
+        /// over its 5s channel = 32/s (2 per tick), while healing 20 times a second. At attack speed 1 (it rescales).</summary>
+        private static float DrainTicksPerSecond(long raw)
+        {
+            if (raw <= 0) return 0;
+            long timer = 0;
+            int ticks = 0;
+            for (long i = 0; i < 600; i++)
+            {
+                timer -= (i + 1) * 65536 / 60 - i * 65536 / 60;
+                if (timer < 0) { ticks++; timer = raw; }
+            }
+            return ticks / 10f;
+        }
 
         private static Dmg Repeat(Dmg d, float mult, float every, float duration, bool unique, bool channelled)
         {

@@ -202,14 +202,17 @@ armor.
 **Timing and dedupe:**
 - The sim runs at 60 Hz (`quantumDeterministicConfig UpdateFPS = 60`; frame = 1092 raw FP). The cascade repeat timer
   is reset after each tick, so ticks are `ceil(repeat / frame)` frames apart: 0.05 → 0.067 s, 0.15 → 0.167 s.
-  **Measured 2026-10-03** (user's 60 fps video, Heal Aura, no gear): 75 → 153 HP and 165 → 65 Focus between the
-  first and last heal 2.517 s apart = 1.5 HP and 2 Focus every **3 frames** (20/s) for the 0.05 s timers (3277 / 3276
-  raw). Code readings that assumed a 1092-raw frame step (65536/60 truncated) predicted 4 frames (15/s, 22.5 HP/s,
-  ~32 Focus/s) and were wrong; one such "fix" shipped briefly in ef8d222/acd8ea4. The mod now uses an effective step
-  of 1093: a tick every `ceil(raw / 1093)` frames, at least one (`TickFrames`), for cascade repeats and channel drains
-  alike. So 0.05 s → 3 frames, 0.15 s → 9, 0.25 s → 15, 0.01 s → every frame (frame-limited: Frost Stream / Inferno
-  drain 0.5 per tick = 30 Focus/s, not the nominal 50; not verified in game). The old cascade_rehit "0.15 → 0.167 s"
-  came from the same 1092 assumption.
+  **Measured 2026-10-03** (user's 60 fps videos, Heal Aura, no gear), **two clocks**:
+  - **Cascade repeats** (heals, damage areas): 1.5 HP every **3 frames** (102 heals in 5.07 s; 20/s) for the 0.05 s
+    timer (3277 raw). A code reading with a 1092-raw frame step predicted 4 frames and was wrong; the mod uses an
+    effective step of 1093: a tick every `ceil(raw / 1093)` frames, at least one (`CascadeEvery`). 0.15 s → 9 frames,
+    0.25 s → 15, 0.01 s → every frame.
+  - **Channel drains** (`ChargedMagicActionData.UpdateCharge` @0x5A1EC80): the action's segmented delta (1092 or 1093
+    raw, 65536 per 60 frames), pays when the timer drops **below** 0, resets to `ChargingCostTime`: 0.05 s (3276 raw) →
+    3 or 4 frames, ~16.1/s (`DrainTicksPerSecond` simulates 10 s). Measured: 161 Focus over the 5 s channel = 32/s.
+    0.01 s → every frame (Frost Stream / Inferno 0.5 per tick = 30 Focus/s; not verified). Attack speed rescales it.
+  - History: the mod first had 30/40 (right heal, wrong drain), then 22.5/32 from the code reading (ef8d222), then
+    30/40 from a misread first video (08896eb), now 30/32.
 - **Cost vs AdditionalCost:** the game shows and requires Cost + AdditionalCost (`ActionData.CanAffordAction`
   @0x5A1B1B0) but pays only Cost at the press (`ActionData.Execute` @0x5B84AC0). AdditionalCost is paid when an
   `ApplyAdditionalCost` (43) timeline section activates (`ActionData.Update` @0x5B84F60): 108 of 116 actions with one
@@ -238,12 +241,11 @@ armor.
 - **Heal / Heal Aura / Pulse of Health:**
   - Heal: +40 HP instantly, 50 Focus.
   - Heal Aura (traced + measured 2026-10-03): 5 Focus at the press (needs 25 to start; the 20 is never paid; seen
-    in game: 170 → 165). Nothing heals until `ReleaseMagic` at 0.93 s releases the cascade; then 1.5 HP every 3 frames
-    (30 HP/s, × the target's Healing stat) to you and allies within 5 m, while the drain takes 2 Focus every 3 frames
-    (40/s, × Focus Cost). 0.75 HP per Focus. The channel ends on release, at 5 s (data), or when a drain tick can't be
-    paid; one more drain tick can land after the last heal. The user's earlier ~115 HP per 100 Focus was with gear
-    (+17% Healing from durability gloves, 1 HP/s drain) and a rough reading; the no-gear video gave 78 HP per 100.
-  - Channel: 5 Health at the press (needs 25), drains 3 Health every 3 frames (60/s), restores 1.9 Focus every
+    in game: 185 → 180). Nothing heals until `ReleaseMagic` at 0.93 s releases the cascade; then 1.5 HP every 3 frames
+    (30 HP/s, × the target's Healing stat) to you and allies within 5 m, while the drain takes 2 Focus ~16 times a
+    second (32/s, × Focus Cost): ~0.94 HP per Focus. The channel ends on release, at 5 s, or when a drain tick can't
+    be paid. In game: 93 → 247 HP, 180 → 19 Focus over one full channel (154 HP for 161 Focus).
+  - Channel: 5 Health at the press (needs 25), drains 3 Health per drain tick (~48/s), restores 1.9 Focus every
     3 frames (38/s) from 0.93 s; ends on release, at 5 s, or when Focus is full. The Health drain can't kill you (needs HP > cost).
   - Pulse of Health: +25 HP and +20% Max Health for 120 s.
 - Unobtainable, so moot (re-verified 2026-10-01): **Gale of Speed** is a byte copy of Damage Surge (+20% Overall
@@ -279,7 +281,7 @@ armor.
   - `Heals 40 HP`
   - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling` (numbers corrected 2026-10-03 to
     `Heals 22.5 HP/s to you and allies; drains 32 Focus/s while channelling, up to 5s; needs 25 Focus, spends 5`,
-    then shortened on request to `Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s` (30/40 confirmed by video): a channel's drain is
+    then shortened on request to `Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s` (measured in game): a channel's drain is
     joined with " for "; "needs 25, spends 5" kept for detailed mode in `_details`)
   - "weapon dmg", not "weapon damage"
 - **They like data-backed comparisons**, such as the kick and throw tables, and in-game verification. They will buy
@@ -300,8 +302,7 @@ armor.
 4. **Absolute numbers for weapon-damage runes:** `≈ N dmg` instead of a %, using the equipped weapon's Damage stat
    (`HeroStatsAPI.TryGetCombinedActiveItemStat(f, hero, weapon, ItemStatType.Damage, out FP, …)` @0x5DEB620) and the
    hero's Healing stat for heals.
-5. **Heal Aura:** done (traced + measured). Open: the user's test 2 (170 Focus, 46 HP, held to the end → 3 Focus,
-   200 HP) gained 154 HP, more than ~125 predicted for 162 Focus; check whether 200 is max HP and how long it lasted.
+5. **Heal Aura:** done (traced + measured in game 2026-10-03).
 6. **Status-driven runes:** Static and Fire Walk show only `lasts 60s`. Static fires a chain lightning (70%
    ExpectedDamage) every 2.5 s through a `PeriodicModifier` → `CascadePayload`.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
