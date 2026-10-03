@@ -253,6 +253,7 @@ internal static class RuneDescriber
                     foreach (var c in magic.Cascades) Cascade(c, null);
                 ChargingCost(magic);
             }
+            UnpaidCost(action);
 
             var parts = _heals.Concat(_buffs).Append(DamageText()).Concat(_costs).OfType<string>().Distinct().ToList();
             return parts.Count > 0 ? string.Join("; ", parts) : null;
@@ -471,7 +472,7 @@ internal static class RuneDescriber
 
         private void Cascade(Il2Cpp.CascadeInstanceSettings s, CascadeStaticData? owner)
         {
-            float repeat = F(s.ExecutionRepeatTime);
+            float repeat = CascadeEvery(s.ExecutionRepeatTime.RawValue); // seconds between ticks, 0 = once
             switch (s.Reaction)
             {
                 case Il2Cpp.CascadeReactionType.DamageArea:
@@ -547,13 +548,34 @@ internal static class RuneDescriber
             return max;
         }
 
-        private static Dmg Repeat(Dmg d, float mult, float repeat, float duration, bool unique, bool channelled)
+        private const long FrameRaw = 1092; // Frame.DeltaTime: FP(1/60) as the sim computes it
+
+        /// <summary>Seconds between a cascade's ticks: CascadeInstanceComponent.Update @0x5A2B160 subtracts Frame.DeltaTime
+        /// (1092 raw) every frame, executes at &lt;= 0 and resets the timer to ExecutionRepeatTime, so ticks are
+        /// ceil(raw / 1092) frames apart: 0.05s (3277 raw) -> 4 frames, 15/s. 0 = no repeat.</summary>
+        private static float CascadeEvery(long raw) => raw <= 0 ? 0 : (float)Math.Ceiling(raw / (double)FrameRaw) / 60f;
+
+        /// <summary>Ticks per second of a channelling drain: ChargedMagicActionData.UpdateCharge @0x5A1EC80 runs its timer
+        /// on the action's segmented delta (1092 or 1093 raw, 65536 per 60 frames, ActionSystem.ResolveSegmentedActionDelta
+        /// Time @0x5B997C0), pays when it drops below 0 (from the first charge frame) and resets it to ChargingCostTime.
+        /// 0.05s -> ~16.1/s. At attack speed 1 (attack speed rescales the action).</summary>
+        private static float DrainTicksPerSecond(long raw)
+        {
+            if (raw <= 0) return 0;
+            long timer = 0;
+            int ticks = 0;
+            for (long i = 0; i < 600; i++)
+            {
+                timer -= (i + 1) * 65536 / 60 - i * 65536 / 60;
+                if (timer < 0) { ticks++; timer = raw; }
+            }
+            return ticks / 10f;
+        }
+
+        private static Dmg Repeat(Dmg d, float mult, float every, float duration, bool unique, bool channelled)
         {
             // Without a duration or a channel nothing says how long it keeps ticking (Frigid Arc, Frost Step): per hit only.
-            if (repeat <= 0 || (duration <= 0 && !channelled)) return d;
-            const float frame = 1092f / 65536f; // FP(1/60) as the sim computes it
-            int k = (int)Math.Ceiling(repeat / frame - 0.001f);
-            float every = k * frame;
+            if (every <= 0 || (duration <= 0 && !channelled)) return d;
             string span = duration > 0 ? $" for {S(duration)}s" : ""; // no duration: channelled, the drain says so
             if (every >= 1f) return d with { Tail = d.Tail + $" every {S(every)}s{span}" };
             // Sub-second repeats as a rate. Shared damage id: capped at one hit per second per enemy, reached only
@@ -585,7 +607,7 @@ internal static class RuneDescriber
                 if (v <= 0) continue;
                 string who = allies ? " to you and allies" : "";
                 string verb = unit == "HP" ? "Heals" : "Restores";
-                _heals.Add(repeat > 0 ? $"{verb} {N(v / repeat)} {unit}/s{who}" : $"{verb} {N(v)} {unit}{who}");
+                _heals.Add(repeat > 0 ? $"{verb} {N(v / repeat)} {unit}/s{who}" : $"{verb} {N(v)} {unit}{who}"); // repeat = seconds per tick
             }
         }
 
@@ -617,16 +639,76 @@ internal static class RuneDescriber
 
         private void ChargingCost(ChargedMagicActionData magic)
         {
-            float every = F(magic.ChargingCostTime);
+            float perSecond = DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
             var costs = magic.ChargingCost?.Costs;
-            if (every <= 0 || costs == null) return;
+            if (perSecond <= 0 || costs == null) return;
+            float cap = ChannelCap(magic.TimelineData);
             foreach (var c in costs)
             {
                 if (c?.Entries == null) continue;
                 float sum = 0;
                 foreach (var e in c.Entries) sum += F(e.Amount);
-                if (sum > 0) _costs.Add($"drains {N(sum / every)} {c.Resource}/s while channelling");
+                // Whole numbers: the cadence makes the decimals look more exact than they are (attack speed rescales it).
+                if (sum > 0) _costs.Add($"drains {Math.Round(sum * perSecond)} {c.Resource}/s while channelling{(cap > 0 ? $", up to {S(cap)}s" : "")}");
             }
+        }
+
+        /// <summary>How long a channel can be held: the state left on InputReleased that also ends by Duration (Heal Aura's
+        /// Charge state, 300 frames = 5s). 0 = no such state.</summary>
+        private static float ChannelCap(TimelineActionData? tl)
+        {
+            var infos = tl?.StateInfos;
+            if (infos == null) return 0;
+            for (int i = 0; i < infos.Length; i++)
+            {
+                var transitions = infos[i]?.Transitions;
+                if (transitions == null) continue;
+                bool released = false, timed = false;
+                foreach (var t in transitions)
+                {
+                    if (t == null) continue;
+                    if (t.Condition == ActionStateTransitionCondition.InputReleased) released = true;
+                    if (t.Condition == ActionStateTransitionCondition.Duration) timed = true;
+                }
+                if (released && timed) return F(infos[i].End) - (i > 0 && infos[i - 1] != null ? F(infos[i - 1].End) : 0);
+            }
+            return 0;
+        }
+
+        /// <summary>The game shows Cost + AdditionalCost and requires both to start (ActionData.CanAffordAction
+        /// @0x5A1B1B0), but pays only Cost at the press (ActionData.Execute @0x5B84AC0); AdditionalCost is paid when an
+        /// ApplyAdditionalCost (43) timeline section activates (ActionData.Update @0x5B84F60). Heal Aura, Channel, Frost
+        /// Stream and Inferno have none: 5 of the shown 25 is spent.</summary>
+        private void UnpaidCost(ActionData action)
+        {
+            var extra = Totals(action.AdditionalCost);
+            if (extra.Count == 0) return;
+            var sections = action.TimelineData?.Sections;
+            if (sections != null)
+                foreach (var sec in sections)
+                    if (sec != null && sec.Id == QuantumActionSectionId.ApplyAdditionalCost) return;
+            var paid = Totals(action.Cost);
+            foreach (var (resource, amount) in extra)
+            {
+                paid.TryGetValue(resource, out float spent);
+                _costs.Add($"needs {N(spent + amount)} {resource}, spends {N(spent)}");
+            }
+        }
+
+        private static Dictionary<string, float> Totals(Il2Cpp.MultiHeroActionCostHelper? helper)
+        {
+            var totals = new Dictionary<string, float>();
+            if (helper?.Costs == null) return totals;
+            foreach (var c in helper.Costs)
+            {
+                if (c?.Entries == null) continue;
+                float sum = 0;
+                foreach (var e in c.Entries) sum += F(e.Amount);
+                if (sum <= 0) continue;
+                string key = c.Resource.ToString();
+                totals[key] = totals.TryGetValue(key, out float v) ? v + sum : sum;
+            }
+            return totals;
         }
     }
 }

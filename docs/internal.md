@@ -197,6 +197,18 @@ armor.
 **Timing and dedupe:**
 - The sim runs at 60 Hz (`quantumDeterministicConfig UpdateFPS = 60`; frame = 1092 raw FP). The cascade repeat timer
   is reset after each tick, so ticks are `ceil(repeat / frame)` frames apart: 0.05 → 0.067 s, 0.15 → 0.167 s.
+  Exactly: `CascadeInstanceComponent.Update` @0x5A2B160 subtracts `Frame.DeltaTime` (1092 raw) and executes at ≤ 0,
+  so k = ceil(raw / 1092) in integers (0.05 s = 3277 raw → 4 frames, 15/s). Until 2026-10-03 the mod computed it in
+  floats with a −0.001 fudge that gave 3 frames (Heal Aura 30 HP/s instead of 22.5).
+- **Channel drains** run on a different clock: `ChargedMagicActionData.UpdateCharge` @0x5A1EC80 uses the action's
+  segmented delta (1092 or 1093 raw, 65536 per 60 frames), pays when the timer drops **below** 0 (from the first charge
+  frame) and resets it to `ChargingCostTime`. 0.05 s → ~16.1 ticks/s; 0.01 s → every frame. The mod simulates 10 s
+  (`DrainTicksPerSecond`). Attack speed rescales action segments, so it changes drain speed and channel length.
+- **Cost vs AdditionalCost:** the game shows and requires Cost + AdditionalCost (`ActionData.CanAffordAction`
+  @0x5A1B1B0) but pays only Cost at the press (`ActionData.Execute` @0x5B84AC0). AdditionalCost is paid when an
+  `ApplyAdditionalCost` (43) timeline section activates (`ActionData.Update` @0x5B84F60): 108 of 116 actions with one
+  have it. Heal Aura, Channel, Frost Stream and Inferno don't: 5 of the shown 25 is spent (`UnpaidCost`). Focus costs
+  and drains of Spell/Special actions go through the Focus Cost stat (`StatsSystem.Hero.GetActionCost` @0x5E03AE0).
 - **Re-hits depend on `CascadeDamageSettings.UniqueDamageId`, not on `IsContinuousDamage`:**
   - **Not unique:** every tick reuses the cast's damage id, and `DamageResolverComponent.TryRegisterDamageID`
     (@0x5C0B9B0, 10 slots per target) drops the same id on the same target for 60 frames. That means at most one hit
@@ -219,9 +231,14 @@ armor.
 
 - **Heal / Heal Aura / Pulse of Health:**
   - Heal: +40 HP instantly, 50 Focus.
-  - Heal Aura: 1.5 HP per 0.05 s (≈30 HP/s) to you and allies within about 5 m, drains 2 Focus per 0.05 s
-    (≈40/s); the tooltip cost of 25 is 5 + 20. The split between start and release, and whether healing only happens
-    while channelling, are NOT verified.
+  - Heal Aura (traced 2026-10-03 after the user's video): 5 Focus at the press (needs 25 to start; the 20 is never
+    paid). Nothing heals until `ReleaseMagic` at 0.93 s releases the cascade; then 1.5 HP every 4 frames (22.5 HP/s,
+    × the target's Healing stat) to you and allies within 5 m, while the drain takes 2 Focus ~16 times a second
+    (~32/s, × Focus Cost). The channel ends on release, at 5 s, or when a drain tick can't be paid; at most one tick
+    after release. Base ≈ 0.7 HP per Focus. The user saw ~115 HP per 100 Focus (with a 1 HP/s drain enchant), so
+    their own stats give about ×1.6 (Healing %, Focus Cost reduction): not yet confirmed which.
+  - Channel: 5 Health at the press (needs 25), drains ~48 Health/s, restores 1.9 Focus every 4 frames (28.5/s) from
+    0.93 s; ends on release, at 5 s, or when Focus is full. The Health drain can't kill you (needs HP > cost).
   - Pulse of Health: +25 HP and +20% Max Health for 120 s.
 - Unobtainable, so moot (re-verified 2026-10-01): **Gale of Speed** is a byte copy of Damage Surge (+20% Overall
   Damage Dealt, no speed). The four **Afflictions** are identical: one ×1 hit with DamageSchool Cold (Heat Affliction
@@ -254,7 +271,8 @@ armor.
   - `70% weapon dmg + 30% of base enemy HP` (was "typical enemy HP"; chosen 2026-10-03)
   - `up to 350% weapon dmg/s for 4s`
   - `Heals 40 HP`
-  - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling`
+  - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling` (numbers corrected 2026-10-03 to
+    `Heals 22.5 HP/s to you and allies; drains 32 Focus/s while channelling, up to 5s; needs 25 Focus, spends 5`)
   - "weapon dmg", not "weapon damage"
 - **They like data-backed comparisons**, such as the kick and throw tables, and in-game verification. They will buy
   runes and test on the hub dummy if asked, and they expect a clear test protocol.
@@ -274,8 +292,7 @@ armor.
 4. **Absolute numbers for weapon-damage runes:** `≈ N dmg` instead of a %, using the equipped weapon's Damage stat
    (`HeroStatsAPI.TryGetCombinedActiveItemStat(f, hero, weapon, ItemStatType.Damage, out FP, …)` @0x5DEB620) and the
    hero's Healing stat for heals.
-5. **Heal Aura timing:** verify when the 5 and the 20 are charged, and whether it heals after release. The user can
-   test with low HP, full Focus, and 1 s vs 2 s channels.
+5. **Heal Aura:** traced (see "Other data facts"); open: which of the user's stats gives the ×1.6 they measured.
 6. **Status-driven runes:** Static and Fire Walk show only `lasts 60s`. Static fires a chain lightning (70%
    ExpectedDamage) every 2.5 s through a `PeriodicModifier` → `CascadePayload`.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
