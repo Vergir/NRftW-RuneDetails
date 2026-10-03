@@ -272,7 +272,9 @@ armor.
   - `up to 350% weapon dmg/s for 4s`
   - `Heals 40 HP`
   - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling` (numbers corrected 2026-10-03 to
-    `Heals 22.5 HP/s to you and allies; drains 32 Focus/s while channelling, up to 5s; needs 25 Focus, spends 5`)
+    `Heals 22.5 HP/s to you and allies; drains 32 Focus/s while channelling, up to 5s; needs 25 Focus, spends 5`,
+    then shortened on request to `Heals 22.5 HP/s to you and allies for 32 Focus/s, up to 5s`: a channel's drain is
+    joined with " for "; "needs 25, spends 5" kept for detailed mode in `_details`)
   - "weapon dmg", not "weapon damage"
 - **They like data-backed comparisons**, such as the kick and throw tables, and in-game verification. They will buy
   runes and test on the hub dummy if asked, and they expect a clear test protocol.

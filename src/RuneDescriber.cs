@@ -193,6 +193,8 @@ internal static class RuneDescriber
     private sealed class Walker
     {
         private readonly List<string> _heals = new(), _buffs = new(), _costs = new();
+        /// <summary>Facts for a future detailed mode only (not shown in the brief text), e.g. "needs 25 Focus, spends 5".</summary>
+        private readonly List<string> _details = new();
         private readonly List<Dmg> _damage = new();
         private readonly HashSet<long> _seen = new();
         private DamageBalanceData _base;
@@ -255,8 +257,12 @@ internal static class RuneDescriber
             }
             UnpaidCost(action);
 
-            var parts = _heals.Concat(_buffs).Append(DamageText()).Concat(_costs).OfType<string>().Distinct().ToList();
-            return parts.Count > 0 ? string.Join("; ", parts) : null;
+            // Brief: what it does, then what the channel costs to keep it up: "Heals 22.5 HP/s to you and allies for
+            // 32 Focus/s, up to 5s". A drain with nothing before it (Rejuvenate) stands alone.
+            var parts = _heals.Concat(_buffs).Append(DamageText()).OfType<string>().Distinct().ToList();
+            string text = string.Join("; ", parts);
+            if (_costs.Count > 0) text = parts.Count > 0 ? $"{text} for {string.Join(" + ", _costs)}" : "drains " + string.Join(" + ", _costs);
+            return text.Length > 0 ? text : null;
         }
 
         private string? DamageText()
@@ -649,7 +655,7 @@ internal static class RuneDescriber
                 float sum = 0;
                 foreach (var e in c.Entries) sum += F(e.Amount);
                 // Whole numbers: the cadence makes the decimals look more exact than they are (attack speed rescales it).
-                if (sum > 0) _costs.Add($"drains {Math.Round(sum * perSecond)} {c.Resource}/s while channelling{(cap > 0 ? $", up to {S(cap)}s" : "")}");
+                if (sum > 0) _costs.Add($"{Math.Round(sum * perSecond)} {c.Resource}/s{(cap > 0 ? $", up to {S(cap)}s" : "")}");
             }
         }
 
@@ -691,7 +697,7 @@ internal static class RuneDescriber
             foreach (var (resource, amount) in extra)
             {
                 paid.TryGetValue(resource, out float spent);
-                _costs.Add($"needs {N(spent + amount)} {resource}, spends {N(spent)}");
+                _details.Add($"needs {N(spent + amount)} {resource}, spends {N(spent)}");
             }
         }
 
