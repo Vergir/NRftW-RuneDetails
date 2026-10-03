@@ -20,30 +20,42 @@ namespace RuneDetails;
 internal static class RuneDescriber
 {
     private const float One = 65536f;
-    private static readonly Dictionary<string, string?> Cache = new();
+    /// <summary>Per rune: the brief text and the extra facts detailed mode adds (null = nothing to say).</summary>
+    private static readonly Dictionary<string, (string? Brief, string? Details)> Cache = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _selfTestDone;
 
-    public static string? Describe(Il2Cpp.HeroRuneDataAsset asset)
+    public static string? Describe(Il2Cpp.HeroRuneDataAsset asset, DetailLevel level)
     {
+        if (level == DetailLevel.Off) return null;
         string key = asset.name ?? "";
-        if (Cache.TryGetValue(key, out var cached)) return cached == null ? null : ResolveLive(cached);
-        string? text = null;
-        try { text = Describe(asset.HeroItemData?.TryCast<HeroRuneData>()); }
-        catch (Exception e)
+        if (!Cache.TryGetValue(key, out var texts))
         {
-            if (Failed.Add(key)) RuneDetailsMod.Log.Warning($"Rune details for {key}: {e.Message}");
+            try { texts = Describe(asset.HeroItemData?.TryCast<HeroRuneData>()); }
+            catch (Exception e)
+            {
+                if (Failed.Add(key)) RuneDetailsMod.Log.Warning($"Rune details for {key}: {e.Message}");
+            }
+            if (Prefs.Debug.Value) RuneDetailsMod.Log.Msg($"rune {key}: {texts.Brief ?? "(none)"} | {texts.Details ?? "-"}");
+            Cache[key] = texts;
         }
-        if (Prefs.Debug.Value) RuneDetailsMod.Log.Msg($"rune {key}: {text ?? "(none)"}");
-        Cache[key] = text;
+        return Compose(texts, level);
+    }
+
+    /// <summary>Brief = the one-line summary; Detailed = it plus the extra facts. (Layout to come.)</summary>
+    private static string? Compose((string? Brief, string? Details) texts, DetailLevel level)
+    {
+        string? text = level == DetailLevel.Detailed && texts.Details != null
+            ? (texts.Brief == null ? texts.Details : texts.Brief + "; " + texts.Details)
+            : texts.Brief;
         return text == null ? null : ResolveLive(text);
     }
 
-    private static string? Describe(HeroRuneData? rune)
+    private static (string? Brief, string? Details) Describe(HeroRuneData? rune)
     {
-        if (rune?.Actions == null || rune.Actions.Length == 0) return null;
+        if (rune?.Actions == null || rune.Actions.Length == 0) return (null, null);
         var action = Resolve<ActionData>(rune.Actions[0].Id);
-        return action == null ? null : new Walker().Action(action);
+        return action == null ? (null, null) : new Walker().Action(action);
     }
 
     /// <summary>Development audit: if UserData/RuneDetails.selftest.txt exists (lines "name guid", e.g. from
@@ -59,7 +71,14 @@ internal static class RuneDescriber
             int cut = line.LastIndexOf(' ');
             if (cut < 0 || !long.TryParse(line.Substring(cut + 1), out long guid)) continue;
             string text;
-            try { text = ResolveLive(Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid })) ?? "(none)"); }
+            // Both levels on one line: "brief ‖ detailed" (the detailed half only when it differs).
+            try
+            {
+                var texts = Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid }));
+                string brief = Compose(texts, DetailLevel.Brief) ?? "(none)";
+                string detailed = Compose(texts, DetailLevel.Detailed) ?? "(none)";
+                text = detailed == brief ? brief : $"{brief} ‖ {detailed}";
+            }
             catch (Exception e) { text = "ERROR " + e.Message; }
             output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
         }
@@ -204,7 +223,7 @@ internal static class RuneDescriber
         private bool _levelDamage; // DamageConfig.CustomDamageProvider = ExpectedWeaponDamageAmountProviderNode
         private string? _multishot; // "3–10": BowMultishotAttackData fires Min..MaxShots arrows depending on windup
 
-        public string? Action(ActionData action)
+        public (string? Brief, string? Details) Action(ActionData action)
         {
             if (action.DamageConfig != null)
             {
@@ -216,6 +235,9 @@ internal static class RuneDescriber
             var magic = action.TryCast<ChargedMagicActionData>();
             _charged = magic != null && magic.ChargeLevels > 1;
             _channelled = magic != null && F(magic.ChargingCostTime) > 0;
+            // Blink: TeleportActionData.Distance (4m).
+            var teleport = action.TryCast<TeleportActionData>();
+            if (teleport != null && F(teleport.Distance) > 0) _buffs.Add($"Teleports {N(F(teleport.Distance))}m");
             var multishot = action.TryCast<BowMultishotAttackData>();
             if (multishot != null && multishot.MaxShots > 1)
                 _multishot = multishot.MinShots == multishot.MaxShots ? $"{multishot.MaxShots}" : $"{multishot.MinShots}–{multishot.MaxShots}";
@@ -262,7 +284,7 @@ internal static class RuneDescriber
             var parts = _heals.Concat(_buffs).Append(DamageText()).OfType<string>().Distinct().ToList();
             string text = string.Join("; ", parts);
             if (_costs.Count > 0) text = parts.Count > 0 ? $"{text} for {string.Join(" + ", _costs)}" : "drains " + string.Join(" + ", _costs);
-            return text.Length > 0 ? text : null;
+            return (text.Length > 0 ? text : null, _details.Count > 0 ? string.Join("; ", _details) : null);
         }
 
         private string? DamageText()

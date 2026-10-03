@@ -131,7 +131,7 @@ def main():
             header.append(line.lstrip("# "))
             continue
         _, guid, text = line.split("\t", 2)
-        mod[guid] = text
+        mod[guid] = text.split(" ‖ ")[0]  # "brief ‖ detailed": the tables show the brief text
 
     rows = defaultdict(list)
     for x in inventory:

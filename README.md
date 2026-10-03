@@ -55,8 +55,8 @@ none odd. Delete both files afterwards.
 | Key | Default | |
 |---|---|---|
 | `Enabled` | `true` | Master switch. |
-| `ShowRuneDetails` | `true` | In game: Options > Gameplay > **Show Rune Details**. |
-| `AddSettingsRows` | `true` | Add that toggle to Options > Gameplay (after a divider, rows named `RD_*`). |
+| `Mode` | `Brief` | `Off`, `Brief` or `Detailed`. In game: Options > Gameplay > **Rune Details**. |
+| `AddSettingsRows` | `true` | Add that setting to Options > Gameplay (after a divider, rows named `RD_*`). |
 | `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | Appended to the rune text. |
 | `Debug` | `false` | Log every rune's details when first shown. |
 

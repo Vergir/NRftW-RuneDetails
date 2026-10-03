@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Il2CppInterop.Runtime;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppMoon.Forsaken;
 using MelonLoader;
 using UnityEngine;
@@ -8,17 +9,14 @@ using UnityEngine;
 namespace RuneDetails;
 
 /// <summary>
-/// Our checkbox at the end of Options > Gameplay, after a divider. Same technique as the DailiesResetTimer mod
-/// (its docs/internal.md, "Settings rows").
-/// The game's own toggles need a PlayerSetting&lt;bool&gt; built on a ref-returning delegate, which a mod cannot supply;
-/// AddKeyboardAndMouseSchemeToggleItem makes the same toggle row from a plain Action&lt;bool&gt;.
+/// Our Off / Brief / Detailed dropdown at the end of Options > Gameplay, after a divider. Same technique as the
+/// DailiesResetTimer mod (its docs/internal.md, "Settings rows"); the dropdown row is AddActualDropDownItem with a plain
+/// Action&lt;int&gt;, as in DisplayUiTweaks (the game's bound rows need a PlayerSetting a mod cannot supply).
 /// </summary>
 internal static class SettingsRows
 {
     public const string Prefix = "RD_";
     private const PlayerSettingCategory Category = PlayerSettingCategory.Gameplay;
-    // Alternate1: the only scheme style that does not arm the game's "preview keyboard scheme" button while hovered.
-    private const KeyboardAndMouseStyle ToggleStyle = KeyboardAndMouseStyle.Alternate1;
     private const string SpacerId = "RD_Spacer", RunesId = "RD_Runes";
     private static readonly string[] AllIds = { SpacerId, RunesId };
 
@@ -42,10 +40,11 @@ internal static class SettingsRows
         RemoveRegistryEntries(controls);
 
         AddSpacer(controls, content);
-        AddToggle(controls, content, RunesId, "Show Rune Details",
-            "Show what a rune really does: heal amounts, buffs, damage as a percentage of weapon damage, focus drain while "
-                + "channelling (Rune Details).",
-            Prefs.ShowRuneDetails);
+        AddDropdown(controls, content, RunesId, "Rune Details",
+            "Show what a rune really does. Brief: heal amounts, buffs, damage as a percentage of weapon damage, focus drain "
+                + "while channelling. Detailed: more numbers (Rune Details).",
+            Prefs.LevelNames, (int)Prefs.Level,
+            i => { Prefs.Mode.Value = Prefs.LevelNames[i]; MelonPreferences.Save(); });
         RuneDetailsMod.Log.Msg("Added the Rune Details row to Options > Gameplay");
     }
 
@@ -97,12 +96,13 @@ internal static class SettingsRows
         foreach (var id in AllIds) items.Remove(id);
     }
 
-    private static void AddToggle(SettingsScreenControls controls, RectTransform content, string id, string name, string desc,
-        MelonPreferences_Entry<bool> pref)
+    private static void AddDropdown(SettingsScreenControls controls, RectTransform content, string id, string name, string desc,
+        string[] options, int current, Action<int> onChanged)
     {
-        Action<bool> onChanged = v => { pref.Value = v; MelonPreferences.Save(); };
+        var arr = new Il2CppStringArray(options.Length);
+        for (int i = 0; i < options.Length; i++) arr[i] = options[i];
         int before = content.childCount;
-        controls.AddKeyboardAndMouseSchemeToggleItem(Category, Msg(id, name), pref.Value, onChanged, ToggleStyle, Msg(id + "_Desc", desc), false);
+        controls.AddActualDropDownItem(Category, Msg(id, name), arr, current, onChanged, Msg(id + "_Desc", desc), true, false);
         NameNewRow(content, before, id);
     }
 

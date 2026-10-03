@@ -42,12 +42,12 @@ internal static class RuneDescriptionPatch
 {
     static void Postfix(Il2Cpp.HeroItemDataAsset __instance, ref string __result)
     {
-        if (!Prefs.Enabled.Value || !Prefs.ShowRuneDetails.Value || string.IsNullOrEmpty(__result)) return;
+        if (!Prefs.Enabled.Value || Prefs.Level == DetailLevel.Off || string.IsNullOrEmpty(__result)) return;
         try
         {
             var rune = __instance.TryCast<Il2Cpp.HeroRuneDataAsset>();
             if (rune == null) return;
-            var extra = RuneDescriber.Describe(rune);
+            var extra = RuneDescriber.Describe(rune, Prefs.Level);
             if (RuneViewContext.Current == RuneView.RuneScreen)
             {
                 // Leave the text alone: the screen splits it on ". " and would drop the details.
@@ -86,7 +86,7 @@ internal static class RuneScreenPatch
         RuneViewContext.Exit();
         var extra = RuneViewContext.RuneScreenExtra;
         RuneViewContext.RuneScreenExtra = null;
-        if (extra == null || !Prefs.Enabled.Value || !Prefs.ShowRuneDetails.Value) return;
+        if (extra == null || !Prefs.Enabled.Value || Prefs.Level == DetailLevel.Off) return;
         try
         {
             var text = __instance.RuneSlotDescription;

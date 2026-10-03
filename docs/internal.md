@@ -294,8 +294,7 @@ armor.
    from the balance curve (70 at level 1, 160 at 11, 360 at 21, 950 at 30), before elite/giant/boss multipliers, co-op
    scaling and realm difficulty. So it is the same number against a boss as against a normal enemy of its level, and it
    does not grow in co-op although enemy HP does (+20/25/35% for 2/3/4 players); armor and resistance still apply.
-   Detailed mode could show absolute numbers by level. Also: should tooltips say rune hits use Rune Damage, not
-   Attack Damage?
+   Also: should tooltips say rune hits use Rune Damage, not Attack Damage?
 2. **Frost Stream / Inferno** spawn several segments. Each segment touching an enemy hits separately, so `/s` is per
    segment. Either trace the overlap geometry or add "per segment".
 3. **Continuous side-effects:** optionally add `no stagger` for continuous hits (Fire Wall, Charged Bolt, the beams).
@@ -308,6 +307,10 @@ armor.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
    it could be cached per frame.
 8. **In-game settings row text** for the new mod, and a README written for players.
-9. **Brief / Detailed modes** (user idea): brief everywhere; detailed only in views A/B (they grow; the rune screen
-   cannot), with layout: per-hit and school, poise / knockdown, reach, first-hit timing, immunity windows, damage per
-   Focus. Detailed could replace the "Slot this Rune into a Bow…" line with `Bow · Rune Attack` (English only).
+9. **Brief / Detailed modes** (decided 2026-10-03): a setting `Mode` = Off / Brief / Detailed (dropdown row
+   `RD_Runes`), shown in **all three views** (the rune screen's `runeSlotDescription` has a ContentSizeFitter and
+   grows; only its ". " split was the problem, and we set its text ourselves after the split). Detailed list: per-hit
+   damage and element, poise / knockdown, reach / radius, first-hit timing, immunity windows, damage per Focus, the
+   real cost ("needs 25, spends 5"), and replacing the "Slot this Rune into a Bow…" line with something like
+   `Bow · Rune Attack` (English only). NOT wanted: absolute "base enemy HP" numbers by enemy level.
+   **At release time, remind the user:** "hold a key (e.g. Shift) to see the detailed text" as an option for 1.1.
