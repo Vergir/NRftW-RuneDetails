@@ -1,7 +1,7 @@
 # Rune Details
 
 MelonLoader mod for No Rest for the Wicked: appends what a rune really does to its tooltip, e.g. `Heals 40 HP`,
-`up to 350% weapon dmg/s for 4s`, `70% weapon dmg + 30% of typical enemy HP`. Display only; the Quantum simulation is
+`up to 350% weapon dmg/s for 4s`, `70% weapon dmg + 30% of base enemy HP`. Display only; the Quantum simulation is
 untouched. Sibling of Enchantment Details (enchantments, gems, facets).
 
 ## How it works
@@ -15,15 +15,17 @@ context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_
 | instant heal / restore | `Heals 40 HP`, `Restores 25 Durability` |
 | channelled aura | `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling` |
 | self buff | `+20% Overall Damage Dealt for 120s`, or `lasts 60s` for infusions |
-| melee rune attack | `350% weapon dmg`, `4 hits × 100% weapon dmg`, `3 hits, 150–200% each, 500% total weapon dmg` |
+| melee rune attack | `350% weapon dmg`, `4 hits × 100% weapon dmg`, `3 hits × 150–200% weapon dmg` (per hit, no totals) |
 | projectiles / spells | `130/150/200% weapon dmg by charge`, `320–800% weapon dmg by charge`, `1100% weapon dmg in 6m`, `3–10 shots × 80% weapon dmg` (ammo fired) |
 | damage over time | `up to 350% weapon dmg/s for 4s` (repeating area, shared damage id: max one hit per second per enemy while inside), `270% weapon dmg every 1.5s for 5s` (repeat ≥ 1s); beams `120% weapon dmg/s; drains 20 Focus/s while channelling` (unique ids, every 1/60-rounded tick hits); no rate without a duration or channel |
-| throws | `70% weapon dmg + 30% of typical enemy HP` (Throw Axe), `100% weapon dmg + 20% of typical enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
+| throws | `70% weapon dmg + 30% of base enemy HP` (Throw Axe), `100% weapon dmg + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
+| waves and traps | `200% weapon dmg + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
 | no damage | `knockdown, no damage` (Scream) |
 | kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `≈161 dmg, grows with weapon LVL, not weapon DMG` with a weapon drawn; `≈153 dmg, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base dmg, …` outside a game |
 
-Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). The
-rune screen shows only the paragraph after the first line break, so the text is appended in-line.
+Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). Item and
+utility-slot tooltips get the details appended in-line; the Runes menu shows only the effect's first sentence (it
+splits the text on ". "), so there the details are added after the game has cut the text (`RuneScreen.SetRuneNameText` postfix).
 Details: empty charge curves count as ×1 and real ones are sampled over the spell's Min..MaxCharge; `DamageBalanceData`
 arrays are read from native memory (0x58-byte stride; the interop struct is smaller); repeats follow
 `analysis/cascade_rehit.md`: without `UniqueDamageId` a repeating area hits one enemy at most once per second (damage-id

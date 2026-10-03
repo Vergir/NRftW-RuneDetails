@@ -64,16 +64,44 @@ The research is in `analysis/rune_numbers.md` and the extractor in `tools/rune_e
 `enchant_extract.py` and `stats_extract.py`; it has a corrected qdb reader `SafeReader` and names qdb types by field
 set. The data table is `analysis/rune_inventory.csv`, 262 rows.
 
-- The rune text is a fixed localized string with no numbers and no packets, from `HeroItemDataAsset.GetDescription()`.
-  It has 4 callers: the item tooltip ×2, `PopulateRuneData` and `RuneScreen.SetRuneNameText`.
-- `RuneScreen` shows only the paragraph after the first newline. So always append in-line; never add `\n`.
+- The rune text is a fixed localized string with no numbers and no packets, from `HeroItemDataAsset.GetDescription()`
+  @0x8FB0900: "Slot this Rune into a Bow to gain the X Rune Attack.\n\n<effect>". Its callers are the three views below.
+- **Which runes exist for players:** `analysis/rune_obtainability.csv`. 40 of the 262 assets can't be obtained
+  (`HeroItemData.CanBeDropped` false and no weapon has them as its built-in special; loot = `SelectionSystem.
+  GetLootSelectionPool` @0x5E13BA0, weapon specials = `RunesAPI.Weapon.InitializeStaticRunes` @0x5D8D880). Don't spend
+  effort on them: the Afflictions, the aura clones, Gale of Speed, Arrow (the bow's basic attack), Bolt, Curse, Frost
+  Blade, Evade (Jump), Rejuvenate, Spectre, legacy Skyfall Shot / bow Throw copies, unnamed test assets.
+
+### The three rune views (traced 2026-10-01)
+
+| View | Where | Text shown | Hook |
+|---|---|---|---|
+| A. Item tooltip | hovering a rune item: inventory, vendor, rewards, the rune list in the Runes menu | everything, incl. the "Slot this Rune…" line (leading chars trimmed, input tokens processed); panel grows | `InventoryItemInfoElement.PopulateItemDescription(in ItemDescription, …)`: **never hook it** (pitfall 1), so it is the default context |
+| B. Utility slot hover | hovering a utility slot on the inventory character panel (utility runes only) | everything; panel grows | `InventoryItemInfoElement.PopulateRuneData(HeroRuneDataAsset, Frame)`: prefix/postfix set the context |
+| C. Runes menu inspect page | Runes menu → a weapon (or Utility) → one of its 4 slots | `RuneScreen.SetRuneNameText()` splits the text on `". "` and `"\n"` and shows `parts[1]`: the effect's **first sentence**, without its period. Anything appended to the text is cut (it always follows `". "`) | prefix sets the context (the description postfix then leaves the text alone and keeps the details), postfix appends them to `RuneSlotDescription` |
+
+Both A and B show the name, a Weapon/Utility rune-type row, **one** cost (Focus if any, else Stamina, else Health:
+`ActionData.Cost + AdditionalCost` summed per resource) and a price. Compatible weapon classes are never shown (the
+prefab's `RuneCompatibleWithSection` is dead), only through the "Slot this Rune into a Bow" line. The weapon tooltip's
+Skills row shows slotted runes by name only. `RuneViewContext` (in `RuneDescriptionPatches.cs`) tracks the view, tied
+to the frame so a missed reset cannot leak.
 - **Asset lookup without a context:** `Il2Cpp.AssetBase.Resolve` is a static `Func<AssetGuid, AssetObject>`.
   `HeroRuneData.Actions[0]` is the whole behaviour.
 - **The walker (`RuneDescriber.Walker.Action`) covers:**
-  - melee `TimelineData.WeaponColliders`
+  - **state branches first:** `TimelineData.StateInfos[i]` (states back to back, ending at `End`) with `Transitions`
+    (`StateIndex`, -1 = end). Bow shots branch: Windup → Resolve on release or → ChargedResolve after the full draw,
+    each with its own arrow event, so one press = one arrow. `ChooseBranch` follows every path from
+    `StartingStateIndex` and keeps the events of the path with the most damage events.
+  - melee `TimelineData.WeaponColliders` (one hit per collider; no re-hit fields exist, dedupe per SubDamageId)
   - `ProjectileEvents` (`OverrideProjectile` → `ProjectileData.StrikeDamageData[]` by charge level; no override means
-    the ammo decides)
-  - `SpawnEntityEvents` (cascade / projectile)
+    the ammo decides). A shot aimed steeply up (`SpawnParams.UseSpawnDirection`, Y ≥ Z/2) from an action that also
+    spawns entities is a signal and skipped (Arrowstorm's skyward arrow). Explosion-only projectiles show their
+    explosion and radius (Arrowstorm's falling arrows).
+  - `SpawnEntityEvents` (cascade / projectile / `MissileTrapData`), counted per spawn (Plague Column: 3 traps). A
+    cascade that spawns entities spawns one per instance (`NumberOfInstances × NumberOfBranches`: Arrowstorm 10,
+    Converging Flame 6).
+  - traps (`Trap()`): only their projectile's ExpectedHealth payload counts, because `MissileTrapData.OnBurst`
+    @0x5B711D0 spawns it without a weapon (weapon damage 0). Cadence = FiringDelay + FiringTime (+ ResetCooldown).
   - `SpecialEffectEvents` (heal / focus / durability / status payloads)
   - `ChargedMagicActionData.Cascades`
   - `CascadeStaticData.Events[].Settings`
@@ -132,6 +160,38 @@ HP.
 Two points are **inferred:** that the NPC expected health is exactly that curve, and that the payload goes through
 armor.
 
+### "Typical enemy HP" = ExpectedHealth (traced 2026-10-02)
+
+- `ExpectedHealthAmountProvider` → `StatsSystem.ExpectedStats.GetExpectedHealth(f, target)` @0x5E026B0: hero target →
+  hero curve; NPC target (any `NpcComponent`: enemies of every type, critters, the training dummy) →
+  `GetEnemyStatAtLevel(MaxHealth, LevelSystem.GetLevel(target))` = `BalanceConfigData.EnemyStats.EnemyStatsList`
+  MaxHealth curve, linear between keys 1:70, 5:100, 11:160, 15:210, 21:360, 26:650, 30:950 (clamped); else 0.
+- That curve is exactly the **base** HP of every NPC (`StatsSystem.Npc.InitializeStats` @0x5E07240 →
+  `ExtractNpcBaseStats` adds it as Base). Real HP = (curve + ΣBase) × (1 + ΣPct) × Π(1 + Comp) with affixes:
+  Elite +25%, Giant +50%, Boss +300%, bounty elites ×4.5, big bosses ×4–14, shielded normals ×0.67, critters ×0.1;
+  co-op Comp +20/25/35% (bosses +25/50/75%) for 2/3/4 players; Path of Resolve ×0.5, Torment ×1.2. **ExpectedHealth
+  ignores all of it**: the payload is a % of a plain normal enemy's HP at the target's level, the same against a boss.
+- Enemy level = node danger level (most world areas Base 21 / Max 30 in the data, plague/quest driven at runtime;
+  town 0 → 1) + difficulty offset (−5…+7); no player-level scaling.
+- The payload goes through armor/resistance like a hit (`DamagePayload.Request` @0x5DC54B0 → `DamageAPI.GetDamage`).
+  Training dummy (`npcDummyBase`): Normal, affix +10000 HP, level low (L1–3), Plague armor 180 + 20·L. In-game
+  2026-10-02: Plague Column needles hit the dummy for 9–10 = 0.15 × 70–85 after ~20% resistance, so the bolt's direct
+  hit adds nothing (confirmed).
+
+### Rune hits are SpecialAttack: Rune Damage, not Attack Damage (traced 2026-10-02)
+
+- Projectiles get `DamageFlags.SpecialAttack` when the hero is executing a weapon special (`ProjectileUtils.Spawn`
+  @0x5B55F90 reads the hero flags; `DamageAPI.ApplyMetaData` @0x5C09950 ORs it in at hit time). With SpecialAttack,
+  `GetWeaponDamageAmount` @0x5C0A890 applies no Attack / Normal Attack Damage (stats 96/97) and `GetDamage` reads
+  Rune Damage (99) instead. Bow shots never use Charged Attack Damage (98).
+- In-game 2026-10-02: normal arrows 29–30, Arrowstorm arrows 24–25 on the dummy (×1.2 = an Attack Damage bonus the
+  rune hits don't get). Arrowstorm's arrows: real `ProjectileUtils.Spawn` with the bow as weapon, explosion r 1.5 m with
+  no falloff from the centre, own damage id per arrow (all 10 can hit). They spawn after the action ends and keep the
+  SpecialAttack flag until the hero starts another action.
+- Bow distance falloff (`ProjectileData.GetDamageFalloffMultiplier` @0x5B51FA0, bows only): ×1 to 6 m, then
+  −10% per metre (additive %), from `BalanceConfigData.Bow.ProjectileDamageOverDistanceCurve` (0:1, 6:1, 15:0.1).
+- Quivers add no damage (`QuiverCoreStatType`: AttackStaminaCost, FocusGainOnHit, Weight, Durability).
+
 ### Repeating cascades (traced; `analysis/cascade_rehit.md`)
 
 **Timing and dedupe:**
@@ -153,6 +213,7 @@ armor.
 | unique | `X%/s` exact, e.g. Bolt 20% per 0.167 s = `120% weapon dmg/s` |
 | repeat of 1 s or more | `X% every Ys for Ns` |
 | no duration and not channelled (Frigid Arc, Frost Step) | per-hit only |
+| moving (`MovementBehaviour` UseVelocity, peak velocity ≥ 5 m/s), not unique | `X% wave`: it passes an enemy within the 1 s dedupe window, so about one hit each (Tremor Slam 30 m/s, Plague Launch 20 m/s). Rotwheel (1.25 m/s) and Fire Wall (empty velocity curves) keep the rate |
 
 ### Other data facts (verified from data; not seen in game)
 
@@ -162,8 +223,16 @@ armor.
     (≈40/s); the tooltip cost of 25 is 5 + 20. The split between start and release, and whether healing only happens
     while channelling, are NOT verified.
   - Pulse of Health: +25 HP and +20% Max Health for 120 s.
-- **Gale of Speed** applies Damage Surge (+20% Overall Damage Dealt), not speed. The **Affliction** runes are one ×1
-  Ice hit with no debuff. **Deflect, Eagle Eye, Life Leech and Slow Aura** share Heal Aura's action (placeholders).
+- Unobtainable, so moot (re-verified 2026-10-01): **Gale of Speed** is a byte copy of Damage Surge (+20% Overall
+  Damage Dealt, no speed). The four **Afflictions** are identical: one ×1 hit with DamageSchool Cold (Heat Affliction
+  too; `DamageAPI.GetDamageSchool` keeps an elemental school), no debuff anywhere in the data. **Deflect, Eagle Eye,
+  Life Leech and Slow Aura** share Heal Aura's action.
+- **Charred Earth** is droppable (level 21) but named and described as "Armageddon" while its data is a Physical
+  two-hit melee attack.
+- **Crushing Flurry** text says seven swings; the data has 6 colliders × 80%.
+- **Plague Column:** 3 traps, 15 s; each arms after 0.5 s, detects an enemy within ~10 m, fires one homing bolt 0.5 s
+  later, stays fired 3 s, repeats; bursts (r 2 m, ~0 damage) after 15 s or when an enemy touches it. The bolt's
+  payload: Plague damage = 15% of a typical enemy's HP at the target's level.
 - **Scream** = ×0 damage, knockdown only.
 - **Charge curves:** an empty curve is ×1; real ones are sampled over `MinCharge..MaxCharge` (Fire Nova 320–800%,
   Chain Lightning 100–200%).
@@ -177,9 +246,12 @@ armor.
   - **Never put parentheses inside it**, because everything is already inside one pair.
   - Round distances to whole metres.
   - Show a mean rather than a range where a range would be long (kicks in town).
+- **Brief style (2026-10-01):** per-hit damage only, no totals (`3 hits × 150–200% weapon dmg`); parts joined with
+  ` + ` and "weapon dmg" said once (`400% weapon dmg + 400% in 2.5m`); fast moving areas as `wave`
+  (`200% weapon dmg + 200% wave`); drop `1 shot ×`.
 - **Wording they chose or approved:**
   - `≈161 dmg, grows with weapon LVL, not weapon DMG`
-  - `70% weapon dmg + 30% of typical enemy HP`
+  - `70% weapon dmg + 30% of base enemy HP` (was "typical enemy HP"; chosen 2026-10-03)
   - `up to 350% weapon dmg/s for 4s`
   - `Heals 40 HP`
   - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling`
@@ -190,8 +262,12 @@ armor.
 
 ## 5. Open items and ideas
 
-1. **Plague Column** shows nothing. It's a trap entity (`plagueColumnTrapData`) with a BoneBolt projectile (×0.8/×2 by
-   charge) and a 0.15 ExpectedHealth payload. The walker's `Entity()` handles cascades and projectiles, not traps.
+1. **Nexus FAQ (must have):** explain "base enemy HP": the HP of a normal (non-elite) enemy at the *target's* level,
+   from the balance curve (70 at level 1, 160 at 11, 360 at 21, 950 at 30), before elite/giant/boss multipliers, co-op
+   scaling and realm difficulty. So it is the same number against a boss as against a normal enemy of its level, and it
+   does not grow in co-op although enemy HP does (+20/25/35% for 2/3/4 players); armor and resistance still apply.
+   Detailed mode could show absolute numbers by level. Also: should tooltips say rune hits use Rune Damage, not
+   Attack Damage?
 2. **Frost Stream / Inferno** spawn several segments. Each segment touching an enemy hits separately, so `/s` is per
    segment. Either trace the overlap geometry or add "per segment".
 3. **Continuous side-effects:** optionally add `no stagger` for continuous hits (Fire Wall, Charged Bolt, the beams).
@@ -205,3 +281,6 @@ armor.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
    it could be cached per frame.
 8. **In-game settings row text** for the new mod, and a README written for players.
+9. **Brief / Detailed modes** (user idea): brief everywhere; detailed only in views A/B (they grow; the rune screen
+   cannot), with layout: per-hit and school, poise / knockdown, reach, first-hit timing, immunity windows, damage per
+   Focus. Detailed could replace the "Slot this Rune into a Bow…" line with `Bow · Rune Attack` (English only).

@@ -16,7 +16,10 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SELFTEST = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
     r"C:\Games\Steam\steamapps\common\NoRestForTheWicked\UserData\RuneDetails.selftest.out.txt")
-INVENTORY = Path(sys.argv[2]) if len(sys.argv) > 2 else REPO.parent.parent / "analysis" / "rune_inventory.csv"
+ANALYSIS = REPO.parent.parent / "analysis"
+INVENTORY = Path(sys.argv[2]) if len(sys.argv) > 2 else ANALYSIS / "rune_inventory.csv"
+# Which runes a player can get (CanBeDropped or a weapon's built-in special; see the analysis README section).
+OBTAINABILITY = ANALYSIS / "rune_obtainability.csv"
 OUT = REPO / "docs" / "rune-tooltips.md"
 
 ONE_HANDED = {"Axe Club CurvedSword Dagger Hammer Mace Rapier Scepter Spear StraightSword Wakizashi Wand Whip",
@@ -29,18 +32,16 @@ SCHOOL_OVERRIDE = {"fireWalk": "Fire", "static": "Lightning", "curse": "Plague",
 
 # Footnotes: data oddities worth knowing when reading the mod column (analysis/rune_numbers.md).
 # Runes that share a text share one footnote number in their table.
-AFFLICTION = "All four Afflictions are one ×1 Ice hit in the data; the debuff from the text has no data."
-AURA_CLONE = ("Deflect, Eagle Eye, Life Leech and Slow Aura reuse Heal Aura's action and have only the generic text: "
-              "unfinished placeholders, probably not obtainable.")
 SEGMENTS = "Spawns several segments that hit separately, so the /s is per segment."
-KICK = ("Kick numbers are live, from the equipped weapon's item level (here expected weapon damage 5.2, an "
-        "item-level-9 weapon). Outside a game they read \"N% base dmg\".")
+KICK = ("Kick numbers are live, from the equipped weapon's item level (here an expected weapon damage of {live}). "
+        "Outside a game they read \"N% base dmg\".")
 NOTES = {
-    "galeOfSpeed": "The data applies Damage Surge (+20% Overall Damage Dealt), no movement speed, although the text promises speed.",
-    "coldAffliction": AFFLICTION, "electricAffliction": AFFLICTION, "heatAffliction": AFFLICTION, "plagueAffliction": AFFLICTION,
-    "deflect": AURA_CLONE, "eagleEye": AURA_CLONE, "lifeLeech": AURA_CLONE, "slowAura": AURA_CLONE,
-    "curse": "The text says plague beam; the damage school in the data is Fire.",
-    "plagueColumn": "Not covered yet: a trap entity (BoneBolt projectile ×0.8/×2 by charge + 15% of typical enemy HP).",
+    "charredEarth": "A second \"Armageddon\": droppable from level 21, but its data is a Physical two-hit melee attack, not the inferno.",
+    "plagueColumn": ("Each trap arms after 0.5s, shoots a homing bolt at an enemy within ~10m, then waits ~3s; it bursts "
+                     "after 15s or when an enemy touches it. The bolt's direct hit is ~0 (fired without a weapon); only its "
+                     "Plague payload counts: 9-10 per needle on the hub dummy in game, = 15% of 70 minus Plague resistance."),
+    "arrowstorm": ("The skyward arrow does nothing; 10 arrows fall over ~2s onto a 2m circle 7m ahead, each with its own "
+                   "explosion (no falloff). Rune hits use Rune Damage, not Attack Damage: 24-25 vs 29-30 for normal arrows in game."),
     "frostStream": SEGMENTS, "inferno": SEGMENTS,
     "static": "Fires a chain lightning (70% weapon dmg) every 2.5s through a periodic modifier; the mod shows only the duration.",
     "fireWalk": "Leaves a damaging fire trail through a periodic modifier; the mod shows only the duration.",
@@ -74,8 +75,8 @@ def cell(s: str) -> str:
 
 def category(x) -> str:
     name, stem, slot, classes = x["name"], x["stem"], x["slot"], x["classes"]
-    if not name or (name == "Skyfall Shot" and stem != "skyfallShot"):
-        return "legacy"
+    if x["obtainable"] != "1":
+        return "unobtainable"
     if slot == "utility":
         return "utility"
     if classes == "Bow Greatbow" or name == "Arrow":
@@ -109,14 +110,19 @@ SECTIONS = [
     ("staff:Lightning", "Staff & Wand runes: Lightning", "Staff and Wand."),
     ("staff:Plague", "Staff & Wand runes: Plague", "Staff and Wand."),
     ("any", "Any-weapon runes", "Kicks, throws and evades: every melee weapon, gauntlets, dual daggers and the greatbow."),
-    ("legacy", "Appendix: unnamed and legacy rune assets",
-     "In the database but probably not obtainable: assets without a name (the game would show an empty title) and 11 "
-     "old stems that all reuse the name \"Skyfall Shot\". Listed by their internal stem."),
+    ("unobtainable", "Appendix: unobtainable rune assets",
+     "In the database, but no player can get them: `CanBeDropped` is off, no weapon has them built in, and no vendor, "
+     "quest or loot table lists them (`analysis/rune_obtainability.csv`). Placeholders (the aura clones, Afflictions, "
+     "Gale of Speed), the bow's basic Arrow attack, 10 legacy copies of Skyfall Shot, unnamed test assets. Listed with "
+     "their internal stem; the mod's output here is not maintained."),
 ]
 
 
 def main():
     inventory = list(csv.DictReader(INVENTORY.open(encoding="utf-8")))
+    obtainable = {r["guid"]: r["obtainable"] for r in csv.DictReader(OBTAINABILITY.open(encoding="utf-8"))}
+    for x in inventory:
+        x["obtainable"] = obtainable.get(x["guid"], "1")
     mod = {}
     header = []
     for line in SELFTEST.open(encoding="utf-8"):
@@ -131,6 +137,7 @@ def main():
     for x in inventory:
         rows[category(x)].append(x)
 
+    live = next((f"{float(h.split(': ')[1]):.1f}" for h in header if h.startswith("live expected weapon damage")), "?")
     out = [
         "# Rune tooltips: game text vs Rune Details",
         "",
@@ -159,13 +166,14 @@ def main():
         out += [f"## {title}", "", f"{blurb} {len(items)} runes.", "",
                 "| Rune | Cost | Game text | Rune Details adds |", "|---|---|---|---|"]
         for x in sorted(items, key=lambda x: (x["name"] or "~", x["stem"])):
-            name = x["name"] if key != "legacy" else f"{x['name'] or '(no name)'} · `{x['stem']}`"
-            if key != "legacy" and names[x["name"]] > 1:
+            name = x["name"] if key != "unobtainable" else f"{x['name'] or '(no name)'} · `{x['stem']}`"
+            if key != "unobtainable" and names[x["name"]] > 1:
                 name += f" · `{x['stem']}`"
             if key == "one" and "Scepter" not in x["classes"]:
                 name += " ¹"
-            note = NOTES.get(x["stem"])
+            note = NOTES.get(x["stem"]) if key != "unobtainable" else None
             if note:
+                note = note.replace("{live}", live)
                 if note not in notes:
                     notes.append(note)
                 name += f" [{notes.index(note) + 1}]"

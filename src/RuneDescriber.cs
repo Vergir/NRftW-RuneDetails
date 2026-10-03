@@ -185,9 +185,15 @@ internal static class RuneDescriber
     private static string Label(string enumName) =>
         Labels.TryGetValue(enumName, out var l) ? l : CamelSplit.Replace(enumName, " ");
 
+    /// <summary>One damage source of a rune: "{Prefix}{Count}{Pct}[ weapon dmg]{Unit}{Tail}", e.g. "3 hits × " "150–200%",
+    /// "up to " "350%" "/s" " for 4s". The parts are joined with " + " and only the first weapon-scaled one says
+    /// "weapon dmg": "400% weapon dmg + 400% in 2.5m". Weapon = false: Pct is a complete text (kicks, % of enemy HP).</summary>
+    private sealed record Dmg(string Pct, string Count = "", string Unit = "", string Tail = "", string Prefix = "", bool Weapon = true);
+
     private sealed class Walker
     {
-        private readonly List<string> _heals = new(), _buffs = new(), _damage = new(), _costs = new();
+        private readonly List<string> _heals = new(), _buffs = new(), _costs = new();
+        private readonly List<Dmg> _damage = new();
         private readonly HashSet<long> _seen = new();
         private DamageBalanceData _base;
         private bool _charged;
@@ -220,12 +226,23 @@ internal static class RuneDescriber
             var tl = action.TimelineData;
             if (tl != null)
             {
+                ChooseBranch(tl);
                 MeleeHits(tl.WeaponColliders);
                 if (tl.ProjectileEvents != null)
-                    ProjectileEvents(tl.ProjectileEvents);
+                    ProjectileEvents(tl.ProjectileEvents, tl.SpawnEntityEvents != null && tl.SpawnEntityEvents.Count > 0);
                 if (tl.SpawnEntityEvents != null)
+                {
+                    // The same entity spawned several times (Plague Column: 3 traps) counts once per spawn.
+                    var spawns = new List<(long Guid, int Count)>();
                     foreach (var e in tl.SpawnEntityEvents)
-                        if (e != null) Entity(e.entityToSpawn.Id);
+                    {
+                        if (e == null || !InBranch(e.spawnTime)) continue;
+                        long g = e.entityToSpawn.Id.Value;
+                        int i = spawns.FindIndex(x => x.Guid == g);
+                        if (i < 0) spawns.Add((g, 1)); else spawns[i] = (g, spawns[i].Count + 1);
+                    }
+                    foreach (var (g, n) in spawns) Entity(new AssetGuid { Value = g }, n);
+                }
                 if (tl.SpecialEffectEvents != null)
                     foreach (var e in tl.SpecialEffectEvents)
                         if (e != null) Payloads(e.Payloads, 0f, false);
@@ -237,8 +254,21 @@ internal static class RuneDescriber
                 ChargingCost(magic);
             }
 
-            var parts = _heals.Concat(_buffs).Concat(_damage).Concat(_costs).Distinct().ToList();
+            var parts = _heals.Concat(_buffs).Append(DamageText()).Concat(_costs).OfType<string>().Distinct().ToList();
             return parts.Count > 0 ? string.Join("; ", parts) : null;
+        }
+
+        private string? DamageText()
+        {
+            var texts = new List<string>();
+            bool named = false;
+            foreach (var d in _damage.Distinct())
+            {
+                string unit = d.Weapon && !named ? " weapon dmg" + d.Unit : d.Unit;
+                named |= d.Weapon;
+                texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{d.Tail}");
+            }
+            return texts.Count > 0 ? string.Join(" + ", texts.Distinct()) : null;
         }
 
         private static float Mult(DamageBalanceData a, DamageBalanceData b) =>
@@ -254,7 +284,7 @@ internal static class RuneDescriber
             var mults = new List<float>();
             foreach (var c in colliders)
             {
-                if (c == null) continue;
+                if (c == null || !InBranch(c.StartTime)) continue;
                 // ActionData.ResolveWeaponColliderDamage: the collider's own strike data replaces the action's.
                 mults.Add(c.UseAlternateStrikeData ? Mult(c.StrikeData, default) : Mult(_base, default));
             }
@@ -264,50 +294,118 @@ internal static class RuneDescriber
                 // Kicks: base = expected weapon damage for the weapon's item level, weapon Damage ignored.
                 // Resolved per display (depends on the equipped weapon), see LevelDamageToken / Live.
                 string each = LevelDamageToken(mults.Max());
-                _damage.Add(mults.Count == 1 ? each : $"{mults.Count} hits × {each}");
+                _damage.Add(new Dmg(mults.Count == 1 ? each : $"{mults.Count} hits × {each}", Weapon: false));
                 return;
             }
-            if (mults.All(m => Math.Abs(m - mults[0]) < 0.001f))
-                _damage.Add(mults.Count == 1 ? $"{Pct(mults[0])} weapon dmg" : $"{mults.Count} hits × {Pct(mults[0])} weapon dmg");
-            else
-                _damage.Add($"{mults.Count} hits, {Pct(mults.Min()).TrimEnd('%')}–{Pct(mults.Max())} each, {Pct(mults.Sum())} total weapon dmg");
+            // Per hit only: a total next to it costs space and adds little.
+            _damage.Add(new Dmg(Range(mults.Min(), mults.Max()), mults.Count == 1 ? "" : $"{mults.Count} hits × "));
         }
 
-        private void ProjectileEvents(Il2CppSystem.Collections.Generic.List<ActionProjectileEvent> events)
+        /// <summary>"150%" or "150–200%".</summary>
+        private static string Range(float lo, float hi) =>
+            Pct(lo) == Pct(hi) ? Pct(hi) : $"{Pct(lo).TrimEnd('%')}–{Pct(hi)}";
+
+        private float[]? _stateEnds;
+        private HashSet<int>? _branch;
+
+        /// <summary>A timeline is a row of states (StateInfos[i] ends at End; states lie back to back) linked by
+        /// transitions. Some are alternatives: a bow shot's Windup goes to Resolve on release or to ChargedResolve after
+        /// the full draw, each with its own arrow, so one press fires one arrow, not two. Follow every path from the
+        /// starting state (StateIndex -1 ends the action) and keep only the events of the path with the most damage
+        /// events. Single-state timelines are not filtered.</summary>
+        private void ChooseBranch(TimelineActionData tl)
+        {
+            var infos = tl.StateInfos;
+            if (infos == null || infos.Length < 2) return;
+            _stateEnds = new float[infos.Length];
+            for (int i = 0; i < infos.Length; i++) _stateEnds[i] = infos[i] == null ? 0 : F(infos[i].End);
+            var paths = new List<List<int>>();
+            void Walk(int state, List<int> path)
+            {
+                if (paths.Count > 64) return;
+                if (state < 0 || state >= infos.Length || path.Contains(state)) { paths.Add(new List<int>(path)); return; }
+                path.Add(state);
+                var next = new List<int>();
+                var transitions = infos[state]?.Transitions;
+                if (transitions != null)
+                    foreach (var t in transitions)
+                        if (t != null && !next.Contains(t.StateIndex)) next.Add(t.StateIndex);
+                if (next.Count == 0) paths.Add(new List<int>(path));
+                foreach (var t in next) Walk(t, path);
+                path.RemoveAt(path.Count - 1);
+            }
+            Walk(tl.StartingStateIndex, new List<int>());
+            if (paths.Count < 2) return;
+            _branch = new HashSet<int>(paths.OrderByDescending(p => DamageEvents(tl, p)).First());
+        }
+
+        private int StateAt(float time)
+        {
+            for (int i = 0; i < _stateEnds!.Length; i++)
+                if (time < _stateEnds[i]) return i;
+            return _stateEnds.Length - 1;
+        }
+
+        private bool InBranch(FP time) => _branch == null || _branch.Contains(StateAt(F(time)));
+
+        private int DamageEvents(TimelineActionData tl, List<int> path)
+        {
+            int n = 0;
+            if (tl.WeaponColliders != null) foreach (var c in tl.WeaponColliders) if (c != null && path.Contains(StateAt(F(c.StartTime)))) n++;
+            if (tl.ProjectileEvents != null) foreach (var e in tl.ProjectileEvents) if (e != null && path.Contains(StateAt(F(e.SpawnTime)))) n++;
+            if (tl.SpawnEntityEvents != null) foreach (var e in tl.SpawnEntityEvents) if (e != null && path.Contains(StateAt(F(e.spawnTime)))) n++;
+            return n;
+        }
+
+        private void ProjectileEvents(Il2CppSystem.Collections.Generic.List<ActionProjectileEvent> events, bool spawnsEntities)
         {
             int count = 0, ammoShots = 0;
-            string? text = null;
+            Dmg? text = null;
             foreach (var e in events)
             {
-                if (e == null) continue;
+                if (e == null || !InBranch(e.SpawnTime)) continue;
+                // A shot aimed steeply up from an action that also spawns something is a signal (Arrowstorm's skyward
+                // arrow calls the rain): it hits nothing.
+                var dir = e.SpawnParams.SpawnDirection;
+                if (spawnsEntities && e.SpawnParams.UseSpawnDirection && F(dir.Y) >= 0.5f * Math.Abs(F(dir.Z))) continue;
                 var p = Resolve<ProjectileData>(e.OverrideProjectile.Id);
                 if (p == null) { ammoShots++; continue; } // fires the equipped ammo: only the action's own layer is known
                 count++;
                 text ??= ProjectileText(p);
             }
-            if (text != null) _damage.Add(count > 1 ? $"{count} × {text}" : text);
+            if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × " } : text);
             if (ammoShots > 0)
             {
-                string each = $"{Pct(Mult(_base, default))} weapon dmg";
                 string shots = _multishot ?? ammoShots.ToString();
-                _damage.Add($"{shots} {(_multishot != null || ammoShots > 1 ? "shots" : "shot")} × {each}");
+                _damage.Add(new Dmg(Pct(Mult(_base, default)), shots == "1" ? "" : $"{shots} shots × "));
             }
         }
 
-        private string? ProjectileText(ProjectileData p)
+        private Dmg? ProjectileText(ProjectileData p)
         {
             var strikes = DamageArray(p.StrikeDamageData);
             string? health = ExpectedHealthDamage(p.Payloads);
-            if (strikes.Length == 0) return health;
-            var mults = strikes.Select(Mult).ToList();
-            string text;
-            if (mults.Distinct().Count() == 1) text = $"{Pct(mults[0])} weapon dmg";
-            else if (_charged) text = $"{string.Join("/", mults.Select(m => Pct(m).TrimEnd('%')))}% weapon dmg by charge";
-            else text = $"{Pct(mults.Min()).TrimEnd('%')}–{Pct(mults.Max())} weapon dmg";
             var expl = DamageArray(p.ExplosionDamageData);
-            if (expl.Length > 0 && (p.ExplodeOnExpiration || (int)p.ExplodeOnHit != 0))
-                text += $" + {Pct(Mult(expl[expl.Length - 1]))} explosion";
-            return health == null ? text : text + " + " + health;
+            bool explodes = expl.Length > 0 && (p.ExplodeOnExpiration || (int)p.ExplodeOnHit != 0);
+            if (strikes.Length == 0)
+            {
+                // Explosion only (Arrowstorm's falling arrows burst on the ground in 1.5m).
+                if (explodes)
+                {
+                    float r = F(p.ExplosionRadius);
+                    return new Dmg(Pct(Mult(expl[expl.Length - 1])), Tail: (r >= 1 ? $" in {N(r)}m" : "") + (health == null ? "" : " + " + health));
+                }
+                return health == null ? null : new Dmg(health, Weapon: false);
+            }
+            var mults = strikes.Select(Mult).ToList();
+            string pct, tail = "";
+            if (mults.Distinct().Count() == 1) pct = Pct(mults[0]);
+            else if (_charged) { pct = $"{string.Join("/", mults.Select(m => Pct(m).TrimEnd('%')))}%"; tail = " by charge"; }
+            else pct = Range(mults.Min(), mults.Max());
+            if (explodes)
+                tail += $" + {Pct(Mult(expl[expl.Length - 1]))} explosion";
+            if (health != null) tail += " + " + health;
+            return new Dmg(pct, Tail: tail);
         }
 
         /// <summary>DamagePayloads whose amount is ExpectedHealthAmountProvider: a fraction of the TARGET's expected
@@ -323,14 +421,20 @@ internal static class RuneDescriber
                 var curve = provider?.ScalingData.Scaling;
                 if (curve != null) sum += F(curve.Evaluate(new FP { RawValue = 0 }));
             }
-            return sum > 0 ? $"{Pct(sum)} of typical enemy HP" : null;
+            return sum > 0 ? $"{Pct(sum)} of base enemy HP" : null;
         }
 
-        private void Entity(AssetGuid guid)
+        private void Entity(AssetGuid guid, int count = 1)
         {
             if (guid.Value == 0 || !_seen.Add(guid.Value)) return;
             var asset = Resolve<AssetObject>(guid);
             if (asset == null) return;
+            var trap = asset.TryCast<MissileTrapData>();
+            if (trap != null)
+            {
+                Trap(trap, count);
+                return;
+            }
             var cascade = asset.TryCast<CascadeStaticData>();
             if (cascade != null)
             {
@@ -343,8 +447,26 @@ internal static class RuneDescriber
             if (projectile != null)
             {
                 var text = ProjectileText(projectile);
-                if (text != null) _damage.Add(text);
+                if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × " } : text);
             }
+        }
+
+        /// <summary>A missile trap (Plague Column): armed after MinTimeActive, it shoots its projectile at an enemy it
+        /// detects, FiringDelay after detecting, then stays in the fired state for FiringTime before it looks again
+        /// (TrapData.OnUpdateEntityInstance @0x5B73950); gone after MaxTimeActive. Its projectiles are spawned without
+        /// a weapon (MissileTrapData.OnBurst @0x5B711D0), so only their % of base enemy HP payload does damage.</summary>
+        private void Trap(MissileTrapData trap, int count)
+        {
+            var projectile = Resolve<ProjectileData>(trap.ProjectileData.Id);
+            string? health = projectile == null ? null : ExpectedHealthDamage(projectile.Payloads);
+            if (health == null) return;
+            float every = F(trap.FiringDelay) + F(trap.FiringTime) + Math.Max(0, F(trap.ResetCooldown));
+            float life = F(trap.MaxTimeActive);
+            int burst = Math.Max(1, trap.BurstCount);
+            // "3 traps × 15% of base enemy HP every ~3.5s for 15s"
+            string traps = count > 1 ? $"{count} traps × " : "trap: ";
+            string shots = burst > 1 ? $"{burst} × {health}" : health;
+            _damage.Add(new Dmg($"{traps}{shots}{(every > 0 ? $" every ~{S(every)}s" : "")}{(life > 0 ? $" for {S(life)}s" : "")}", Weapon: false));
         }
 
         private void Cascade(Il2Cpp.CascadeInstanceSettings s, CascadeStaticData? owner)
@@ -366,17 +488,26 @@ internal static class RuneDescriber
                     }
                     if (m * hi < 0.005f)
                     {
-                        if (s.Damage.Damage.KnockDown || _base.KnockDown) _damage.Add("knockdown, no damage");
+                        if (s.Damage.Damage.KnockDown || _base.KnockDown) _damage.Add(new Dmg("knockdown, no damage", Weapon: false));
                         break;
                     }
-                    string text = Math.Abs(hi - lo) < 0.001f
-                        ? $"{Pct(m * hi)} weapon dmg"
-                        : $"{Pct(m * lo).TrimEnd('%')}–{Pct(m * hi)} weapon dmg by charge";
+                    var d = new Dmg(Range(m * lo, m * hi), Tail: Pct(m * lo) != Pct(m * hi) ? " by charge" : "");
                     float duration = owner == null ? 0 : F(owner.InstanceDuration);
-                    text = RepeatText(text, m * hi, repeat, duration, s.Damage.UniqueDamageId || s.Reaction == Il2Cpp.CascadeReactionType.DirectDamage, _channelled);
+                    bool unique = s.Damage.UniqueDamageId || s.Reaction == Il2Cpp.CascadeReactionType.DirectDamage;
+                    bool moving = owner != null && owner.MovementBehaviour == CascadeMovementBehaviour.UseVelocity
+                        && Speed(owner.MovementSettings) >= WaveSpeed;
+                    if (moving && !unique && repeat > 0)
+                    {
+                        // A fast travelling area (tremor waves: 20-30 m/s) with a shared damage id passes an enemy well
+                        // within the 1s damage-id window, so it hits each enemy about once: a per-second rate would mislead.
+                        // Slow ones (Rotwheel 1.25 m/s) keep the rate; Fire Wall is UseVelocity with empty curves.
+                        _damage.Add(d with { Tail = d.Tail + " wave" });
+                        break;
+                    }
+                    d = Repeat(d, m * hi, repeat, duration, unique, _channelled);
                     float radius = owner == null ? 0 : F(owner.InstanceRadius) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
-                    if (radius >= 2) text += $" in {N(radius)}m";
-                    _damage.Add(text);
+                    if (radius >= 2) d = d with { Tail = d.Tail + $" in {N(radius)}m" };
+                    _damage.Add(d);
                     break;
                 }
                 case Il2Cpp.CascadeReactionType.SpecialEffect:
@@ -388,7 +519,7 @@ internal static class RuneDescriber
                     break;
                 }
                 case Il2Cpp.CascadeReactionType.SpawnEntity:
-                    Entity(s.EntityToSpawn.Id);
+                    Entity(s.EntityToSpawn.Id, owner == null ? 1 : Math.Max(1, owner.NumberOfInstances) * Math.Max(1, owner.NumberOfBranches));
                     break;
             }
         }
@@ -399,18 +530,37 @@ internal static class RuneDescriber
         /// DamageResolverComponent.TryRegisterDamageID drops the same id on the same target for 60 frames, so the enemy
         /// is hit at most once per second. With UniqueDamageId (and DirectDamage) every tick is a new hit.
         /// IsContinuousDamage does not affect this (it only skips poise, lifesteal, focus gain...).</summary>
-        private static string RepeatText(string text, float mult, float repeat, float duration, bool unique, bool channelled)
+        private const float WaveSpeed = 5f;
+
+        /// <summary>Peak speed (m/s) of a cascade's velocity curves, sampled over their range; empty curves are 0.</summary>
+        private static float Speed(CascadeMovementSettings? settings)
+        {
+            var v = settings?.Velocity;
+            if (v == null) return 0;
+            float At(FPCurve? c, float t) => c == null || c.Count == 0 ? 0 : F(c.Evaluate(new FP { RawValue = (long)(t * One) }));
+            float max = 0;
+            for (int i = 0; i <= 4; i++)
+            {
+                float t = i / 4f, x = At(v.X, t), y = At(v.Y, t), z = At(v.Z, t);
+                max = Math.Max(max, (float)Math.Sqrt(x * x + y * y + z * z));
+            }
+            return max;
+        }
+
+        private static Dmg Repeat(Dmg d, float mult, float repeat, float duration, bool unique, bool channelled)
         {
             // Without a duration or a channel nothing says how long it keeps ticking (Frigid Arc, Frost Step): per hit only.
-            if (repeat <= 0 || (duration <= 0 && !channelled)) return text;
+            if (repeat <= 0 || (duration <= 0 && !channelled)) return d;
             const float frame = 1092f / 65536f; // FP(1/60) as the sim computes it
             int k = (int)Math.Ceiling(repeat / frame - 0.001f);
             float every = k * frame;
             string span = duration > 0 ? $" for {S(duration)}s" : ""; // no duration: channelled, the drain says so
-            if (every >= 1f) return $"{text} every {S(every)}s{span}";
+            if (every >= 1f) return d with { Tail = d.Tail + $" every {S(every)}s{span}" };
             // Sub-second repeats as a rate. Shared damage id: capped at one hit per second per enemy, reached only
             // while the enemy stays inside ("up to"). Unique ids: every tick hits, exact.
-            return unique ? $"{Pct(mult / every)} weapon dmg/s{span}" : $"up to {Pct(mult)} weapon dmg/s{span}";
+            return unique
+                ? new Dmg(Pct(mult / every), Unit: "/s", Tail: span)
+                : new Dmg(Pct(mult), Unit: "/s", Tail: span, Prefix: "up to ");
         }
 
         private void Payloads(PayloadData? data, float repeat, bool allies)
