@@ -554,29 +554,21 @@ internal static class RuneDescriber
             return max;
         }
 
-        private const long FrameRaw = 1092; // Frame.DeltaTime: FP(1/60) as the sim computes it
+        /// <summary>Raw FP time a sim frame takes off a tick timer, as measured in game. The timers reset to their
+        /// interval after each tick (CascadeInstanceComponent.Update @0x5A2B160, ChargedMagicActionData.UpdateCharge
+        /// @0x5A1EC80), so a tick comes every ceil(interval / frame) frames, at least one. Measured 2026-10-03 (user's
+        /// 60 fps video, Heal Aura, no gear): 78 HP and 100 Focus in 2.52s = 1.5 HP and 2 Focus every 3 frames (20/s) for
+        /// the 0.05s (3277 / 3276 raw) timers. With 1092 (65536/60 truncated) that would be 4 frames, 15/s, so the
+        /// effective step is 1093 (a reading of the code that assumed 1092 was wrong).</summary>
+        private const double FrameRaw = 1093;
 
-        /// <summary>Seconds between a cascade's ticks: CascadeInstanceComponent.Update @0x5A2B160 subtracts Frame.DeltaTime
-        /// (1092 raw) every frame, executes at &lt;= 0 and resets the timer to ExecutionRepeatTime, so ticks are
-        /// ceil(raw / 1092) frames apart: 0.05s (3277 raw) -> 4 frames, 15/s. 0 = no repeat.</summary>
-        private static float CascadeEvery(long raw) => raw <= 0 ? 0 : (float)Math.Ceiling(raw / (double)FrameRaw) / 60f;
+        private static int TickFrames(long raw) => Math.Max(1, (int)Math.Ceiling(raw / FrameRaw));
 
-        /// <summary>Ticks per second of a channelling drain: ChargedMagicActionData.UpdateCharge @0x5A1EC80 runs its timer
-        /// on the action's segmented delta (1092 or 1093 raw, 65536 per 60 frames, ActionSystem.ResolveSegmentedActionDelta
-        /// Time @0x5B997C0), pays when it drops below 0 (from the first charge frame) and resets it to ChargingCostTime.
-        /// 0.05s -> ~16.1/s. At attack speed 1 (attack speed rescales the action).</summary>
-        private static float DrainTicksPerSecond(long raw)
-        {
-            if (raw <= 0) return 0;
-            long timer = 0;
-            int ticks = 0;
-            for (long i = 0; i < 600; i++)
-            {
-                timer -= (i + 1) * 65536 / 60 - i * 65536 / 60;
-                if (timer < 0) { ticks++; timer = raw; }
-            }
-            return ticks / 10f;
-        }
+        /// <summary>Seconds between a cascade's ticks: 0.05s -> 3 frames (20/s), 0.01s -> every frame. 0 = no repeat.</summary>
+        private static float CascadeEvery(long raw) => raw <= 0 ? 0 : TickFrames(raw) / 60f;
+
+        /// <summary>Ticks per second of a channelling drain, at attack speed 1 (attack speed rescales the action).</summary>
+        private static float DrainTicksPerSecond(long raw) => raw <= 0 ? 0 : 60f / TickFrames(raw);
 
         private static Dmg Repeat(Dmg d, float mult, float every, float duration, bool unique, bool channelled)
         {

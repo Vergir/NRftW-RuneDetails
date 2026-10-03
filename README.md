@@ -13,7 +13,7 @@ context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_
 | Rune kind | Shown |
 |---|---|
 | instant heal / restore | `Heals 40 HP`, `Restores 25 Durability` |
-| channelled aura | `Heals 22.5 HP/s to you and allies for 32 Focus/s, up to 5s` (the game shows and requires 25 Focus but takes only 5) |
+| channelled aura | `Heals 30 HP/s to you and allies for 40 Focus/s, up to 5s` (the game shows and requires 25 Focus but takes only 5) |
 | self buff | `+20% Overall Damage Dealt for 120s`, or `lasts 60s` for infusions |
 | melee rune attack | `350% weapon dmg`, `4 hits × 100% weapon dmg`, `3 hits × 150–200% weapon dmg` (per hit, no totals) |
 | projectiles / spells | `130/150/200% weapon dmg by charge`, `320–800% weapon dmg by charge`, `1100% weapon dmg in 6m`, `3–10 shots × 80% weapon dmg` (ammo fired) |
