@@ -335,6 +335,10 @@ armor.
    cannot dodge out of Crushing Flurry after its first swing nor out of Swipe Kick before the kick, although their
    Interruptible sections start there; Lightning Leap's events lie past its 1.17 s timeline. Attack segments are
    rescaled at run time (`ActionComponent.PostProcessSegmentPlaybackState`, `AttackSections`); model that first.
+   Then (same day): game effect text first, the slot line (gold) under it, an empty line, our lines (rune screen:
+   sentence, empty line, lines); `Knockback: ×2` without "WPN" (there is no weapon push: a fixed curve × the hit's
+   KickbackMulti × the target's multiplier; normal attacks 0.25–1.5). docs/rune-tooltips.html shows every rune in
+   both modes with the in-game colours (the self-test writes the coloured lines).
    Changed the same day on request: colours (grey labels, light values #D9D9D9, numbers and the slot header in the
    game's highlight gold #F2E6BD), `Poise: (WPN + 10) × 0.8`, `Knockback: WPN × 2` (KickbackMulti; "WPN" = the
    weapon's base push, while its normal attacks have their own 0.25–1.5), the channel cap moved into `Cost:`.

@@ -1,12 +1,14 @@
-"""Build docs/rune-tooltips.md: every rune's game text next to what Rune Details appends.
+"""Build docs/rune-tooltips.html: every rune as its tooltip looks with Rune Details, in Brief and in Detailed mode.
 
 Inputs:
   - the workspace rune inventory (analysis/rune_inventory.csv: name, guid, slot, classes, costs, English template)
-  - the mod's self-test output (<game>/UserData/RuneDetails.selftest.out.txt: "name<TAB>guid<TAB>text")
+  - the mod's self-test output (<game>/UserData/RuneDetails.selftest.out.txt:
+    "name<TAB>guid<TAB>brief ‖ detailed line ¦ detailed line …", detailed lines with their TMP colour tags)
 
 Usage: python tools/rune_table.py [selftest.out.txt] [rune_inventory.csv]
 """
 import csv
+import html
 import re
 import sys
 from collections import defaultdict
@@ -20,7 +22,10 @@ ANALYSIS = REPO.parent.parent / "analysis"
 INVENTORY = Path(sys.argv[2]) if len(sys.argv) > 2 else ANALYSIS / "rune_inventory.csv"
 # Which runes a player can get (CanBeDropped or a weapon's built-in special; see the analysis README section).
 OBTAINABILITY = ANALYSIS / "rune_obtainability.csv"
-OUT = REPO / "docs" / "rune-tooltips.md"
+OUT = REPO / "docs" / "rune-tooltips.html"
+
+# Colours as the mod uses them (src/RuneLayout.cs, Prefs.DefaultHiddenFormat); GAME_TEXT approximates the tooltip's.
+GREY, GOLD, GAME_TEXT = "#9A9A9A", "#F2E6BD", "#E6E1D6"
 
 ONE_HANDED = {"Axe Club CurvedSword Dagger Hammer Mace Rapier Scepter Spear StraightSword Wakizashi Wand Whip",
               "Axe Club CurvedSword Dagger Hammer Wakizashi Mace Rapier StraightSword Spear Wand"}
@@ -30,7 +35,7 @@ SCHOOLS = ["Fire", "Ice", "Lightning", "Plague"]
 # Staff/wand runes whose data school is missing or reads oddly; filed by what the game calls them.
 SCHOOL_OVERRIDE = {"fireWalk": "Fire", "static": "Lightning", "curse": "Plague", "charredEarth": "Fire"}
 
-# Footnotes: data oddities worth knowing when reading the mod column (analysis/rune_numbers.md).
+# Footnotes: data oddities worth knowing when reading the mod's text (analysis/rune_numbers.md).
 # Runes that share a text share one footnote number in their table.
 SEGMENTS = "Spawns several segments that hit separately, so the /s is per segment."
 KICK = ("Kick numbers are live, from the equipped weapon's item level (here an expected weapon damage of {live}). "
@@ -48,9 +53,34 @@ NOTES = {
     "frontflipKick": KICK, "dropkick": KICK, "swipeKick": KICK, "turnbackKick": KICK,
 }
 
+SECTIONS = [
+    ("utility", "Utility runes", "Utility slot. Heals, buffs, auras and movement."),
+    ("one", "One-handed weapon runes",
+     "Axe, Club, Curved Sword, Dagger, Hammer, Mace, Rapier, Spear, Straight Sword, Wakizashi, Wand, and Scepter/Whip "
+     "except where marked ¹."),
+    ("two", "Two-handed weapon runes",
+     "Bo Staff, Curved Greatsword, Great Axe, Great Club, Great Hammer, Greatsword, Halberd, Katana, Nunchaku, Scythe, Staff."),
+    ("daggers", "Dual dagger runes", "Double Dagger only."),
+    ("gauntlet", "Gauntlet runes", "Gauntlets only."),
+    ("bow", "Bow runes", "Bow and Greatbow."),
+    ("staff:Fire", "Staff & Wand: Fire", "Staff and Wand."),
+    ("staff:Ice", "Staff & Wand: Ice", "Staff and Wand."),
+    ("staff:Lightning", "Staff & Wand: Lightning", "Staff and Wand."),
+    ("staff:Plague", "Staff & Wand: Plague", "Staff and Wand."),
+    ("any", "Any-weapon runes", "Kicks, throws and evades: every melee weapon, gauntlets, dual daggers and the greatbow."),
+    ("unobtainable", "Appendix: unobtainable rune assets",
+     "In the database, but no player can get them: CanBeDropped is off, no weapon has them built in, and no vendor, "
+     "quest or loot table lists them (analysis/rune_obtainability.csv). Placeholders (the aura clones, Afflictions, "
+     "Gale of Speed), the bow's basic Arrow attack, 10 legacy copies of Skyfall Shot, unnamed test assets. The mod's "
+     "output here is not maintained."),
+]
+
+SLOT_LINE = re.compile(r"^Slot this Rune into (?:an? )?(?P<slot>.+?) to gain the .+$")
+TMP_TAG = re.compile(r"<color=(#[0-9A-Fa-f]{6})>|</color>|<[^>]+>")
+
 
 def cost(raw: str) -> str:
-    """'Focus 5; Focus 20 | Cost=...' -> '25 Focus' (Cost + AdditionalCost, the total the rune spends)."""
+    """'Focus 5; Focus 20 | Cost=...' -> '25 Focus' (Cost + AdditionalCost, what the game's tooltip shows)."""
     totals = defaultdict(float)
     for part in raw.split("|")[0].split(";"):
         m = re.match(r"\s*(\w+)\s+([\d.]+)", part)
@@ -60,17 +90,50 @@ def cost(raw: str) -> str:
     return ", ".join(shown) or "–"
 
 
-def game_text(template: str) -> str:
-    """Drop the 'Slot this Rune into a … to gain the X Spell.' line; keep the effect paragraph(s)."""
-    paragraphs = [p.strip() for p in template.replace("\ufffd", "’").split("\n") if p.strip()]
-    if paragraphs and paragraphs[0].startswith("Slot this Rune"):
-        paragraphs = paragraphs[1:]
-    text = re.sub(r"<[^>]+>", "", " ".join(paragraphs))
-    return text or "*(only the generic \"Slot this Rune…\" line)*"
+def tmp_html(text: str) -> str:
+    """TextMeshPro rich text -> HTML: <color=#…> becomes a span, other tags are dropped, the rest escaped."""
+    out, pos, depth = [], 0, 0
+    for m in TMP_TAG.finditer(text):
+        out.append(html.escape(text[pos:m.start()]))
+        if m.group(1):
+            out.append(f'<span style="color:{m.group(1)}">')
+            depth += 1
+        elif m.group(0) == "</color>" and depth:
+            out.append("</span>")
+            depth -= 1
+        pos = m.end()
+    out.append(html.escape(text[pos:]))
+    out.append("</span>" * depth)
+    return "".join(out).replace("\n", "<br>")
 
 
-def cell(s: str) -> str:
-    return s.replace("|", "\\|")
+def split_template(template: str):
+    """(full game text, effect paragraph(s), slot) from the English template; slot None for utility runes."""
+    full = template.replace("\ufffd", "’").strip()
+    first, _, rest = full.partition("\n")
+    m = SLOT_LINE.match(re.sub(r"<[^>]+>", "", first).strip())
+    if not m:
+        return full, full, None
+    slot = m.group("slot").replace(" or a ", " or ").replace(" or an ", " or ")
+    if slot == "Utility Slot":
+        slot = None
+    elif slot == "Weapon":
+        slot = "Any Weapon"
+    return full, rest.strip(), slot
+
+
+def brief_html(full: str, brief: str | None) -> str:
+    """Brief mode: the game's whole text with the grey "(…)" appended in-line."""
+    text = tmp_html(full)
+    return text + (f' <span style="color:{GREY}">({html.escape(brief)})</span>' if brief else "")
+
+
+def detailed_html(effect: str, slot: str | None, lines: list[str], brief: str | None, full: str) -> str:
+    """Detailed mode: effect text, the slot in gold, an empty line, the coloured lines (falls back to brief)."""
+    if not lines:
+        return brief_html(full, brief)
+    top = tmp_html(effect) + (f'<br><span style="color:{GOLD}">{html.escape(slot)}</span>' if slot else "")
+    return top + "<br><br>" + "<br>".join(tmp_html(l) for l in lines)
 
 
 def category(x) -> str:
@@ -95,27 +158,31 @@ def category(x) -> str:
     return "any"
 
 
-SECTIONS = [
-    ("utility", "Utility runes", "Utility slot. Heals, buffs, auras and movement. The four Afflictions are Staff/Wand only."),
-    ("one", "One-handed weapon runes",
-     "Axe, Club, Curved Sword, Dagger, Hammer, Mace, Rapier, Spear, Straight Sword, Wakizashi, Wand, and Scepter/Whip "
-     "except where marked ¹."),
-    ("two", "Two-handed weapon runes",
-     "Bo Staff, Curved Greatsword, Great Axe, Great Club, Great Hammer, Greatsword, Halberd, Katana, Nunchaku, Scythe, Staff."),
-    ("daggers", "Dual dagger runes", "Double Dagger only."),
-    ("gauntlet", "Gauntlet runes", "Gauntlets only."),
-    ("bow", "Bow runes", "Bow and Greatbow."),
-    ("staff:Fire", "Staff & Wand runes: Fire", "Staff and Wand."),
-    ("staff:Ice", "Staff & Wand runes: Ice", "Staff and Wand."),
-    ("staff:Lightning", "Staff & Wand runes: Lightning", "Staff and Wand."),
-    ("staff:Plague", "Staff & Wand runes: Plague", "Staff and Wand."),
-    ("any", "Any-weapon runes", "Kicks, throws and evades: every melee weapon, gauntlets, dual daggers and the greatbow."),
-    ("unobtainable", "Appendix: unobtainable rune assets",
-     "In the database, but no player can get them: `CanBeDropped` is off, no weapon has them built in, and no vendor, "
-     "quest or loot table lists them (`analysis/rune_obtainability.csv`). Placeholders (the aura clones, Afflictions, "
-     "Gale of Speed), the bow's basic Arrow attack, 10 legacy copies of Skyfall Shot, unnamed test assets. Listed with "
-     "their internal stem; the mod's output here is not maintained."),
-]
+CSS = """
+:root { color-scheme: dark; }
+body { margin: 0; background: #12110e; color: #d6d2c8; font: 14px/1.45 "Segoe UI", system-ui, sans-serif; }
+header { padding: 20px 24px 8px; }
+h1 { margin: 0 0 6px; font-size: 22px; color: #f2e6bd; }
+.meta { color: #9a9a9a; max-width: 1100px; }
+nav { position: sticky; top: 0; z-index: 2; background: #12110eee; border-bottom: 1px solid #2c2922;
+      padding: 8px 24px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+nav a { color: #c9bf9f; text-decoration: none; font-size: 13px; }
+nav a:hover { color: #f2e6bd; }
+section { padding: 8px 24px 24px; }
+h2 { color: #f2e6bd; font-size: 18px; margin: 18px 0 4px; }
+.blurb { color: #9a9a9a; margin: 0 0 10px; }
+table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+th { text-align: left; color: #9a9a9a; font-weight: 600; padding: 6px 10px; border-bottom: 1px solid #2c2922; }
+td { vertical-align: top; padding: 10px; border-bottom: 1px solid #23211b; }
+col.rune { width: 170px; } col.mode { width: calc(50% - 85px); }
+.name { color: #f2e6bd; font-weight: 600; }
+.cost, .stem { color: #8a857a; font-size: 12px; }
+.tip { background: #1d1b16; border: 1px solid #34302676; border-radius: 4px; padding: 8px 10px; color: """ + GAME_TEXT + """; }
+.notes { color: #9a9a9a; font-size: 12.5px; margin-top: 8px; }
+.notes p { margin: 2px 0; }
+details > summary { cursor: pointer; color: #f2e6bd; font-size: 18px; margin: 18px 0 4px; }
+@media (max-width: 760px) { col.rune { width: 110px; } td, th { padding: 6px; } header, section, nav { padding-left: 12px; padding-right: 12px; } }
+"""
 
 
 def main():
@@ -131,29 +198,26 @@ def main():
             header.append(line.lstrip("# "))
             continue
         _, guid, text = line.split("\t", 2)
-        mod[guid] = text.split(" ‖ ")[0]  # "brief ‖ detailed": the tables show the brief text
+        brief, _, detailed = text.partition(" ‖ ")
+        mod[guid] = (None if brief == "(none)" else brief, detailed.split(" ¦ ") if detailed else [])
 
     rows = defaultdict(list)
     for x in inventory:
         rows[category(x)].append(x)
 
     live = next((f"{float(h.split(': ')[1]):.1f}" for h in header if h.startswith("live expected weapon damage")), "?")
+    anchor = lambda key: "s-" + re.sub(r"[^a-z0-9]+", "-", key.lower())
     out = [
-        "# Rune tooltips: game text vs Rune Details",
-        "",
-        "Generated by `tools/rune_table.py` from the mod's in-game self-test (Rune Details 0.1.0, game build 29466, "
-        f"{len(inventory)} rune assets; {header[0] if header else ''}) and the English rune texts in "
-        "`analysis/rune_inventory.csv`.",
-        "",
-        "- **Game text**: the rune's description without its first line (\"Slot this Rune into a … to gain the X "
-        "Spell.\"). The rune screen shows only this part.",
-        "- **Rune Details adds**: what the mod appends to that text, in grey parentheses: "
-        "`… on impact. (130/150/200% weapon dmg by charge)`. *(nothing)* = the mod adds nothing.",
-        "- **Cost**: from the rune's action data (cost + additional cost). The mod does not show it; it is here for context.",
-        "",
-        "Contents: " + " · ".join(f"[{title}](#{re.sub(r'[^a-z0-9 -]', '', title.lower()).replace(' ', '-')})"
-                                   for key, title, _ in SECTIONS if rows[key]),
-        "",
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+        "<title>Rune Tooltips</title>", f"<style>{CSS}</style></head><body>",
+        "<header><h1>Rune tooltips: Brief vs Detailed</h1>",
+        f"<p class=\"meta\">Every rune's tooltip text with Rune Details, as the item tooltip shows it. Generated by "
+        f"<code>tools/rune_table.py</code> from the mod's in-game self-test (game build 29466, {len(inventory)} rune "
+        f"assets; {html.escape(header[0]) if header else ''}) and the English rune texts in "
+        f"<code>analysis/rune_inventory.csv</code>. The cost under each name is what the game's tooltip shows "
+        f"(cost + additional cost).</p></header>",
+        "<nav>" + "".join(f'<a href="#{anchor(k)}">{html.escape(t)}</a>' for k, t, _ in SECTIONS if rows[k]) + "</nav>",
     ]
     for key, title, blurb in SECTIONS:
         items = rows[key]
@@ -163,12 +227,11 @@ def main():
         names = defaultdict(int)  # names used twice in one table get their stem
         for x in items:
             names[x["name"]] += 1
-        out += [f"## {title}", "", f"{blurb} {len(items)} runes.", "",
-                "| Rune | Cost | Game text | Rune Details adds |", "|---|---|---|---|"]
+        body = []
         for x in sorted(items, key=lambda x: (x["name"] or "~", x["stem"])):
-            name = x["name"] if key != "unobtainable" else f"{x['name'] or '(no name)'} · `{x['stem']}`"
-            if key != "unobtainable" and names[x["name"]] > 1:
-                name += f" · `{x['stem']}`"
+            name = html.escape(x["name"] or "(no name)")
+            if key == "unobtainable" or names[x["name"]] > 1:
+                name += f' <span class="stem">{html.escape(x["stem"])}</span>'
             if key == "one" and "Scepter" not in x["classes"]:
                 name += " ¹"
             note = NOTES.get(x["stem"]) if key != "unobtainable" else None
@@ -176,14 +239,23 @@ def main():
                 note = note.replace("{live}", live)
                 if note not in notes:
                     notes.append(note)
-                name += f" [{notes.index(note) + 1}]"
-            added = mod.get(x["guid"], "(none)")
-            added = "*(nothing)*" if added == "(none)" else added
-            out.append(f"| {cell(name)} | {cost(x['cost_raw'])} | {cell(game_text(x['template']))} | {cell(added)} |")
-        if notes:
-            out.append("")
-            out += [f"[{i + 1}] {n}  " for i, n in enumerate(notes)]
-        out.append("")
+                name += f" <sup>[{notes.index(note) + 1}]</sup>"
+            brief, lines = mod.get(x["guid"], (None, []))
+            full, effect, slot = split_template(x["template"])
+            body.append(f'<tr><td><div class="name">{name}</div><div class="cost">{html.escape(cost(x["cost_raw"]))}</div></td>'
+                        f'<td><div class="tip">{brief_html(full, brief)}</div></td>'
+                        f'<td><div class="tip">{detailed_html(effect, slot, lines, brief, full)}</div></td></tr>')
+        table = ('<table><colgroup><col class="rune"><col class="mode"><col class="mode"></colgroup>'
+                 "<thead><tr><th>Rune</th><th>Brief</th><th>Detailed</th></tr></thead><tbody>"
+                 + "".join(body) + "</tbody></table>")
+        foot = ('<div class="notes">' + "".join(f"<p>[{i + 1}] {html.escape(n)}</p>" for i, n in enumerate(notes)) + "</div>"
+                if notes else "")
+        intro = f'<p class="blurb">{html.escape(blurb)} {len(items)} runes.</p>'
+        if key == "unobtainable":
+            out.append(f'<section id="{anchor(key)}"><details><summary>{html.escape(title)}</summary>{intro}{table}{foot}</details></section>')
+        else:
+            out.append(f'<section id="{anchor(key)}"><h2>{html.escape(title)}</h2>{intro}{table}{foot}</section>')
+    out.append("</body></html>")
     OUT.write_text("\n".join(out), encoding="utf-8")
     print(f"{OUT} ({sum(len(v) for v in rows.values())} runes)")
 

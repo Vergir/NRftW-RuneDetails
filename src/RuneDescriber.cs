@@ -76,7 +76,7 @@ internal static class RuneDescriber
             {
                 var texts = Live(Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid })));
                 string brief = texts.Brief ?? "(none)";
-                text = texts.Lines.Count == 0 ? brief : $"{brief} ‖ {string.Join(" ¦ ", texts.Lines)}";
+                text = texts.Lines.Count == 0 ? brief : $"{brief} ‖ {string.Join(" ¦ ", RuneLayout.ColourLines(texts))}";
             }
             catch (Exception e) { text = "ERROR " + e.Message; }
             output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
@@ -343,7 +343,7 @@ internal static class RuneDescriber
             if (cost.Count > 0) lines.Add("Cost: " + string.Join(" · ", cost));
 
             // Hit: poise and knockback as formulas on the weapon's own values, "Poise: (WPN + 10) × 0.8",
-            // "Knockback: WPN × 2" (melee only: for projectiles and areas the action's values are one layer of several).
+            // "Knockback: ×2" (melee only: for projectiles and areas the action's values are one layer of several).
             // Poise offset in the game's display units (x10). Hit = (weapon poise + offset) x (1 + Poise%).
             if (damage != null && _melee)
             {
@@ -355,7 +355,9 @@ internal static class RuneDescriber
                     hit.Add("Poise: " + (hasFactor ? $"{(hasOffset ? $"({plus})" : plus)} × {N(factor)}" : plus));
                 float kick = F(_base.KickbackMulti);
                 if (_knockdown || _base.KnockDown) hit.Add("Knockback: knockdown");
-                else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: WPN × {N(kick)}");
+                // Against the standard push, not the weapon's: a fixed curve x the hit's KickbackMulti x the target's
+                // own multiplier (HitReactionResolverSystem.GetKickbackMulti @0x5C32C40). Normal attacks: 0.25-1.5.
+                else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: ×{N(kick)}");
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
             else if (damage != null && _knockdown) lines.Add("Knockback: knockdown");
