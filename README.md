@@ -4,7 +4,7 @@ A [MelonLoader](https://github.com/LavaGang/MelonLoader) mod for **No Rest for t
 really does to its text: damage as a multiple of weapon damage, heals, buffs, costs and timings. Display only; the
 Quantum simulation is untouched.
 
-Download: [Nexus Mods](https://www.nexusmods.com/norestforthewicked/mods/) · [GitHub releases](https://github.com/vergir/NRftW-RuneDetails/releases/latest)
+Download: [Nexus Mods](https://www.nexusmods.com/norestforthewicked/mods/107) · [GitHub releases](https://github.com/vergir/NRftW-RuneDetails/releases/latest)
 
 What players see is described on the Nexus page ([docs/nexus-description.bbcode](docs/nexus-description.bbcode)); every
 rune's output in both modes is in [docs/rune-tooltips.html](docs/rune-tooltips.html); how each number is found, the
