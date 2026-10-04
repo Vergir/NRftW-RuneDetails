@@ -29,7 +29,7 @@ internal static class RuneViewContext
     public static void Exit() => _frame = -1;
 
     /// <summary>The rune screen's details, captured during SetRuneNameText and appended after its split.</summary>
-    public static string? RuneScreenExtra;
+    public static RuneDescriber.RuneText? RuneScreenExtra;
 }
 
 /// <summary>
@@ -47,14 +47,14 @@ internal static class RuneDescriptionPatch
         {
             var rune = __instance.TryCast<Il2Cpp.HeroRuneDataAsset>();
             if (rune == null) return;
-            var extra = RuneDescriber.Describe(rune, Prefs.Level);
+            var text = RuneDescriber.Describe(rune);
             if (RuneViewContext.Current == RuneView.RuneScreen)
             {
                 // Leave the text alone: the screen splits it on ". " and would drop the details.
-                RuneViewContext.RuneScreenExtra = extra;
+                RuneViewContext.RuneScreenExtra = text;
                 return;
             }
-            if (extra != null) __result = __result.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", extra);
+            __result = RuneLayout.Tooltip(__result, text, Prefs.Level);
         }
         catch (System.Exception e)
         {
@@ -91,7 +91,7 @@ internal static class RuneScreenPatch
         {
             var text = __instance.RuneSlotDescription;
             if (text == null || !text.gameObject.activeInHierarchy || string.IsNullOrEmpty(text.text)) return;
-            text.text = text.text.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", extra);
+            text.text = RuneLayout.RuneScreen(text.text, extra, Prefs.Level);
         }
         catch (System.Exception e)
         {

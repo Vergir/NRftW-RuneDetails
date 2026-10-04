@@ -20,42 +20,42 @@ namespace RuneDetails;
 internal static class RuneDescriber
 {
     private const float One = 65536f;
-    /// <summary>Per rune: the brief text and the extra facts detailed mode adds (null = nothing to say).</summary>
-    private static readonly Dictionary<string, (string? Brief, string? Details)> Cache = new();
+    /// <summary>What the mod says about one rune: the brief one-liner and the detailed mode's labelled lines.</summary>
+    internal sealed record RuneText(string? Brief, IReadOnlyList<string> Lines)
+    {
+        public static readonly RuneText None = new(null, Array.Empty<string>());
+    }
+
+    private static readonly Dictionary<string, RuneText> Cache = new();
     private static readonly HashSet<string> Failed = new();
     private static bool _selfTestDone;
 
-    public static string? Describe(Il2Cpp.HeroRuneDataAsset asset, DetailLevel level)
+    /// <summary>The rune's texts with live values (kick damage) filled in.</summary>
+    public static RuneText Describe(Il2Cpp.HeroRuneDataAsset asset)
     {
-        if (level == DetailLevel.Off) return null;
         string key = asset.name ?? "";
         if (!Cache.TryGetValue(key, out var texts))
         {
+            texts = RuneText.None;
             try { texts = Describe(asset.HeroItemData?.TryCast<HeroRuneData>()); }
             catch (Exception e)
             {
                 if (Failed.Add(key)) RuneDetailsMod.Log.Warning($"Rune details for {key}: {e.Message}");
             }
-            if (Prefs.Debug.Value) RuneDetailsMod.Log.Msg($"rune {key}: {texts.Brief ?? "(none)"} | {texts.Details ?? "-"}");
+            if (Prefs.Debug.Value) RuneDetailsMod.Log.Msg($"rune {key}: {texts.Brief ?? "(none)"} | {string.Join(" | ", texts.Lines)}");
             Cache[key] = texts;
         }
-        return Compose(texts, level);
+        return Live(texts);
     }
 
-    /// <summary>Brief = the one-line summary; Detailed = it plus the extra facts. (Layout to come.)</summary>
-    private static string? Compose((string? Brief, string? Details) texts, DetailLevel level)
-    {
-        string? text = level == DetailLevel.Detailed && texts.Details != null
-            ? (texts.Brief == null ? texts.Details : texts.Brief + "; " + texts.Details)
-            : texts.Brief;
-        return text == null ? null : ResolveLive(text);
-    }
+    private static RuneText Live(RuneText t) =>
+        new(t.Brief == null ? null : ResolveLive(t.Brief), t.Lines.Select(ResolveLive).ToList());
 
-    private static (string? Brief, string? Details) Describe(HeroRuneData? rune)
+    private static RuneText Describe(HeroRuneData? rune)
     {
-        if (rune?.Actions == null || rune.Actions.Length == 0) return (null, null);
+        if (rune?.Actions == null || rune.Actions.Length == 0) return RuneText.None;
         var action = Resolve<ActionData>(rune.Actions[0].Id);
-        return action == null ? (null, null) : new Walker().Action(action);
+        return action == null ? RuneText.None : new Walker().Action(action);
     }
 
     /// <summary>Development audit: if UserData/RuneDetails.selftest.txt exists (lines "name guid", e.g. from
@@ -71,13 +71,12 @@ internal static class RuneDescriber
             int cut = line.LastIndexOf(' ');
             if (cut < 0 || !long.TryParse(line.Substring(cut + 1), out long guid)) continue;
             string text;
-            // Both levels on one line: "brief ‖ detailed" (the detailed half only when it differs).
+            // Both levels on one line: "brief ‖ line 1 ¦ line 2 ¦ ..." (the detailed lines when there are any).
             try
             {
-                var texts = Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid }));
-                string brief = Compose(texts, DetailLevel.Brief) ?? "(none)";
-                string detailed = Compose(texts, DetailLevel.Detailed) ?? "(none)";
-                text = detailed == brief ? brief : $"{brief} ‖ {detailed}";
+                var texts = Live(Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid })));
+                string brief = texts.Brief ?? "(none)";
+                text = texts.Lines.Count == 0 ? brief : $"{brief} ‖ {string.Join(" ¦ ", texts.Lines)}";
             }
             catch (Exception e) { text = "ERROR " + e.Message; }
             output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
@@ -206,8 +205,10 @@ internal static class RuneDescriber
 
     /// <summary>One damage source of a rune: "{Prefix}{Count}{Pct}[ weapon dmg]{Unit}{Tail}", e.g. "3 hits × " "150–200%",
     /// "up to " "350%" "/s" " for 4s". The parts are joined with " + " and only the first weapon-scaled one says
-    /// "weapon dmg": "400% weapon dmg + 400% in 2.5m". Weapon = false: Pct is a complete text (kicks, % of enemy HP).</summary>
-    private sealed record Dmg(string Pct, string Count = "", string Unit = "", string Tail = "", string Prefix = "", bool Weapon = true);
+    /// "weapon dmg": "400% weapon dmg + 400% in 2.5m". Weapon = false: Pct is a complete text (kicks, % of enemy HP).
+    /// Total = the weapon-damage multiple one cast deals when it is exactly known (for damage per Focus), else -1.</summary>
+    private sealed record Dmg(string Pct, string Count = "", string Unit = "", string Tail = "", string Prefix = "", bool Weapon = true,
+        float Total = -1);
 
     private sealed class Walker
     {
@@ -216,6 +217,14 @@ internal static class RuneDescriber
         private readonly List<string> _details = new();
         private readonly List<Dmg> _damage = new();
         private readonly HashSet<long> _seen = new();
+        // Detailed-mode facts.
+        private readonly HashSet<DamageSchool> _schools = new();
+        private readonly List<string> _healsDetailed = new();
+        private bool _knockdown, _melee;
+        private float _restorePerSecond;
+        private string? _restoreUnit;
+        private float _firstHit = float.MaxValue;
+        private float _healPerSecond, _healInstant;
         private DamageBalanceData _base;
         private bool _charged;
         private float _minCharge = 1, _maxCharge = 1;
@@ -223,7 +232,7 @@ internal static class RuneDescriber
         private bool _levelDamage; // DamageConfig.CustomDamageProvider = ExpectedWeaponDamageAmountProviderNode
         private string? _multishot; // "3–10": BowMultishotAttackData fires Min..MaxShots arrows depending on windup
 
-        public (string? Brief, string? Details) Action(ActionData action)
+        public RuneText Action(ActionData action)
         {
             if (action.DamageConfig != null)
             {
@@ -279,25 +288,165 @@ internal static class RuneDescriber
             }
             UnpaidCost(action);
 
-            // Brief: what it does, then what the channel costs to keep it up: "Heals 22.5 HP/s to you and allies for
+            // Brief: what it does, then what the channel costs to keep it up: "Heals 30 HP/s to you and allies for
             // 32 Focus/s, up to 5s". A drain with nothing before it (Rejuvenate) stands alone.
-            var parts = _heals.Concat(_buffs).Append(DamageText()).OfType<string>().Distinct().ToList();
+            var parts = _heals.Concat(_buffs).Append(DamageText(" weapon dmg")).OfType<string>().Distinct().ToList();
             string text = string.Join("; ", parts);
             if (_costs.Count > 0) text = parts.Count > 0 ? $"{text} for {string.Join(" + ", _costs)}" : "drains " + string.Join(" + ", _costs);
-            return (text.Length > 0 ? text : null, _details.Count > 0 ? string.Join("; ", _details) : null);
+            return new RuneText(text.Length > 0 ? text : null, DetailedLines(action, magic));
         }
 
-        private string? DamageText()
+        private string? DamageText(string weaponWord)
         {
             var texts = new List<string>();
             bool named = false;
             foreach (var d in _damage.Distinct())
             {
-                string unit = d.Weapon && !named ? " weapon dmg" + d.Unit : d.Unit;
+                string unit = d.Weapon && !named ? weaponWord + d.Unit : d.Unit;
                 named |= d.Weapon;
                 texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{d.Tail}");
             }
             return texts.Count > 0 ? string.Join(" + ", texts.Distinct()) : null;
+        }
+
+        // ---------------- detailed mode (layout A, 2026-10-04: labelled lines, to be tuned in game) ----------------
+
+        private static readonly Dictionary<DamageSchool, string> SchoolNames = new()
+        {
+            [DamageSchool.Heat] = "Fire", [DamageSchool.Cold] = "Ice", [DamageSchool.Electric] = "Lightning",
+            [DamageSchool.Plague] = "Plague", [DamageSchool.Bleed] = "Bleed",
+        };
+
+        private List<string> DetailedLines(ActionData action, ChargedMagicActionData? magic)
+        {
+            var lines = new List<string>();
+            var tl = action.TimelineData;
+
+            // Damage, in the weapon-damage shorthand; an element only when the rune sets its own (Physical runes hit
+            // with the weapon's element: DamageAPI.GetDamageSchool keeps an elemental school, else the weapon's).
+            string? damage = DamageText(" WPN");
+            if (damage != null)
+            {
+                var own = _schools.Where(SchoolNames.ContainsKey).Select(x => SchoolNames[x]).Distinct().ToList();
+                lines.Add("Damage: " + damage + (own.Count > 0 ? ", " + string.Join("/", own) : ""));
+            }
+            var effects = _healsDetailed.Concat(_buffs).Distinct().ToList();
+            if (effects.Count > 0) lines.Add("Effect: " + string.Join("; ", effects));
+
+            // Cost: the channel's drain and Cost vs shown cost.
+            var cost = new List<string>();
+            float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
+            foreach (var (resource, amount) in Totals(magic?.ChargingCost))
+                cost.Add($"{Math.Round(amount * perSecond)} {resource}/s");
+            cost.AddRange(_details);
+            if (cost.Count > 0) lines.Add("Cost: " + string.Join(" · ", cost));
+
+            // Hit: poise and knockback against the weapon's normal hits (melee only: for projectiles and areas the
+            // action's values are one layer of several). Poise in the game's display units (x10).
+            if (damage != null && _melee)
+            {
+                var hit = new List<string>();
+                float poiseBase = F(_base.BasePoiseOffset) * 10, poisePct = F(_base.PoisePercentageModifier);
+                string poise = (Math.Abs(poiseBase) >= 0.5f ? $"{(poiseBase > 0 ? "+" : "")}{N(poiseBase)}" : "")
+                    + (Math.Abs(poisePct) >= 0.005f ? (Math.Abs(poiseBase) >= 0.5f ? ", then " : "") + $"{(poisePct > 0 ? "+" : "−")}{Pct(Math.Abs(poisePct))}" : "");
+                if (poise.Length > 0) hit.Add($"Poise: {poise} vs normal hits");
+                string? knock = _knockdown || _base.KnockDown ? "knockdown" : Knockback(F(_base.KickbackMulti));
+                if (knock != null) hit.Add("Knockback: " + knock);
+                if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
+            }
+            else if (damage != null && _knockdown) lines.Add("Knockback: knockdown");
+
+            // Timing (seconds from the press, at attack speed 1).
+            var timing = new List<string>();
+            if (tl?.Sections != null)
+            {
+                var invulnerable = new List<string>();
+                float dodge = float.MaxValue, attack = float.MaxValue, release = -1;
+                foreach (var sec in tl.Sections)
+                {
+                    if (sec == null) continue;
+                    float start = Real(F(sec.Start)), end = Real(F(sec.End));
+                    if (start < 0 && sec.Id != QuantumActionSectionId.ReleaseMagic) continue; // not on the chosen branch
+                    switch (sec.Id)
+                    {
+                        // Invincibility, or the Immune level (ImmunityFlags 15 includes Damage).
+                        case QuantumActionSectionId.Invincibility:
+                        case QuantumActionSectionId.ImmunityImmune:
+                            invulnerable.Add($"{S(start)}–{S(end)}s");
+                            break;
+                        // When the rune can be cut short: InterruptibleByAll, or ByAction for the action types in Mask.
+                        case QuantumActionSectionId.InterruptibleByAll:
+                        case QuantumActionSectionId.InterruptibleByAction:
+                            int mask = (int)sec.Mask;
+                            if (sec.Id == QuantumActionSectionId.InterruptibleByAll || (mask & (int)ActionType.Dodge) != 0) dodge = Math.Min(dodge, start);
+                            if (sec.Id == QuantumActionSectionId.InterruptibleByAll || (mask & ((int)ActionType.Melee | (int)ActionType.Ranged | (int)ActionType.Special)) != 0)
+                                attack = Math.Min(attack, start);
+                            break;
+                        case QuantumActionSectionId.ReleaseMagic:
+                            release = start;
+                            break;
+                    }
+                }
+                if (invulnerable.Count > 0 && (magic == null || _channelled)) timing.Add("invulnerable " + string.Join(", ", invulnerable));
+                if (_channelled)
+                {
+                    if (release > 0) timing.Add($"starts {S(release)}s");
+                    float cap = ChannelCap(tl);
+                    if (cap > 0) timing.Add($"hold up to {S(cap)}s");
+                }
+                else if (magic == null) // a charged spell's times depend on how long it is charged
+                {
+                    float first = _firstHit < float.MaxValue ? Real(_firstHit) : -1;
+                    if (first >= 0 && damage != null) timing.Add($"first hit {S(first)}s");
+                    if (dodge < float.MaxValue)
+                        timing.Add($"lockout {S(dodge)}s" + (attack < float.MaxValue && attack > dodge + 0.02f ? $", attacks {S(attack)}s" : ""));
+                }
+            }
+            if (timing.Count > 0) lines.Add("Timing: " + string.Join(" · ", timing));
+
+            // Efficiency per point of what the press actually spends.
+            var paid = Totals(action.Cost);
+            foreach (var (resource, amount) in Totals(action.AdditionalCost))
+                if (HasAdditionalCostSection(action)) paid[resource] = paid.TryGetValue(resource, out float v) ? v + amount : amount;
+            if (paid.Count == 1)
+            {
+                var (resource, spent) = paid.First();
+                var known = _damage.Distinct().ToList();
+                // Only when every part is a known multiple of weapon damage (no rates, ranges or % of enemy HP).
+                if (known.Count > 0 && known.All(d => d.Weapon && d.Total > 0 && !d.Tail.Contains("enemy HP")) && spent > 0)
+                    lines.Add($"Efficiency: {N(known.Sum(d => d.Total) / spent * 100)}% WPN per {resource}");
+                else if (_healInstant > 0 && spent > 0 && known.Count == 0)
+                    lines.Add($"Efficiency: {N(_healInstant / spent)} HP per {resource}");
+            }
+            if (_healPerSecond > 0 && perSecond > 0 && magic?.ChargingCost != null)
+            {
+                float drain = Totals(magic.ChargingCost).Values.Sum() * perSecond;
+                if (drain > 0) lines.Add($"Efficiency: {Math.Round(_healPerSecond / drain, 2).ToString(CultureInfo.InvariantCulture)} HP per Focus");
+            }
+            if (_restorePerSecond > 0 && perSecond > 0 && magic?.ChargingCost != null)
+            {
+                var drains = Totals(magic.ChargingCost);
+                if (drains.Count == 1)
+                {
+                    var (resource, amount) = drains.First();
+                    lines.Add($"Efficiency: {Math.Round(_restorePerSecond / (amount * perSecond), 2).ToString(CultureInfo.InvariantCulture)} {_restoreUnit} per {resource}");
+                }
+            }
+            return lines;
+        }
+
+        /// <summary>KickbackMulti in words: normal attacks range from 0.25 (rapier) to 1.5 (great axe); nothing for
+        /// the usual range.</summary>
+        private static string? Knockback(float multi) =>
+            multi <= 0.001f ? "none" : multi < 0.5f ? "light" : multi >= 3f ? "very strong" : multi >= 1.75f ? "strong" : null;
+
+        private static bool HasAdditionalCostSection(ActionData action)
+        {
+            var sections = action.TimelineData?.Sections;
+            if (sections != null)
+                foreach (var sec in sections)
+                    if (sec != null && sec.Id == QuantumActionSectionId.ApplyAdditionalCost) return true;
+            return false;
         }
 
         private static float Mult(DamageBalanceData a, DamageBalanceData b) =>
@@ -315,7 +464,12 @@ internal static class RuneDescriber
             {
                 if (c == null || !InBranch(c.StartTime)) continue;
                 // ActionData.ResolveWeaponColliderDamage: the collider's own strike data replaces the action's.
-                mults.Add(c.UseAlternateStrikeData ? Mult(c.StrikeData, default) : Mult(_base, default));
+                var strike = c.UseAlternateStrikeData ? c.StrikeData : _base;
+                mults.Add(Mult(strike, default));
+                _schools.Add(strike.DamageSchool);
+                _knockdown |= strike.KnockDown;
+                _firstHit = Math.Min(_firstHit, F(c.StartTime));
+                _melee = true;
             }
             if (mults.Count == 0) return;
             if (_levelDamage)
@@ -327,7 +481,7 @@ internal static class RuneDescriber
                 return;
             }
             // Per hit only: a total next to it costs space and adds little.
-            _damage.Add(new Dmg(Range(mults.Min(), mults.Max()), mults.Count == 1 ? "" : $"{mults.Count} hits × "));
+            _damage.Add(new Dmg(Range(mults.Min(), mults.Max()), mults.Count == 1 ? "" : $"{mults.Count} hits × ", Total: mults.Sum()));
         }
 
         /// <summary>"150%" or "150–200%".</summary>
@@ -336,6 +490,7 @@ internal static class RuneDescriber
 
         private float[]? _stateEnds;
         private HashSet<int>? _branch;
+        private List<int>? _path; // the chosen branch in order, for timeline -> real time
 
         /// <summary>A timeline is a row of states (StateInfos[i] ends at End; states lie back to back) linked by
         /// transitions. Some are alternatives: a bow shot's Windup goes to Resolve on release or to ChargedResolve after
@@ -365,7 +520,8 @@ internal static class RuneDescriber
             }
             Walk(tl.StartingStateIndex, new List<int>());
             if (paths.Count < 2) return;
-            _branch = new HashSet<int>(paths.OrderByDescending(p => DamageEvents(tl, p)).First());
+            _path = paths.OrderByDescending(p => DamageEvents(tl, p)).First();
+            _branch = new HashSet<int>(_path);
         }
 
         private int StateAt(float time)
@@ -376,6 +532,24 @@ internal static class RuneDescriber
         }
 
         private bool InBranch(FP time) => _branch == null || _branch.Contains(StateAt(F(time)));
+
+        /// <summary>Seconds from the press for a timeline time: states lie back to back on the timeline but a branch
+        /// jumps (Fire Arrow's full draw goes from Windup, ending 2.17s, to ChargedResolve, starting 3.5s), so add up the
+        /// lengths of the branch's earlier states. -1 if the time is not on the branch.</summary>
+        private float Real(float time)
+        {
+            if (_stateEnds == null || _path == null) return time;
+            int state = StateAt(time);
+            int at = _path.IndexOf(state);
+            if (at < 0) return -1;
+            float offset = 0;
+            for (int i = 0; i < at; i++)
+            {
+                int st = _path[i];
+                offset += _stateEnds[st] - (st > 0 ? _stateEnds[st - 1] : 0);
+            }
+            return offset + time - (state > 0 ? _stateEnds[state - 1] : 0);
+        }
 
         private int DamageEvents(TimelineActionData tl, List<int> path)
         {
@@ -398,15 +572,18 @@ internal static class RuneDescriber
                 var dir = e.SpawnParams.SpawnDirection;
                 if (spawnsEntities && e.SpawnParams.UseSpawnDirection && F(dir.Y) >= 0.5f * Math.Abs(F(dir.Z))) continue;
                 var p = Resolve<ProjectileData>(e.OverrideProjectile.Id);
+                _firstHit = Math.Min(_firstHit, F(e.SpawnTime));
+                _schools.Add(_base.DamageSchool);
                 if (p == null) { ammoShots++; continue; } // fires the equipped ammo: only the action's own layer is known
                 count++;
                 text ??= ProjectileText(p);
             }
-            if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × " } : text);
+            if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × ", Total = text.Total > 0 ? text.Total * count : -1 } : text);
             if (ammoShots > 0)
             {
                 string shots = _multishot ?? ammoShots.ToString();
-                _damage.Add(new Dmg(Pct(Mult(_base, default)), shots == "1" ? "" : $"{shots} shots × "));
+                float each = Mult(_base, default);
+                _damage.Add(new Dmg(Pct(each), shots == "1" ? "" : $"{shots} shots × ", Total: _multishot == null ? each * ammoShots : -1));
             }
         }
 
@@ -422,7 +599,8 @@ internal static class RuneDescriber
                 if (explodes)
                 {
                     float r = F(p.ExplosionRadius);
-                    return new Dmg(Pct(Mult(expl[expl.Length - 1])), Tail: (r >= 1 ? $" in {N(r)}m" : "") + (health == null ? "" : " + " + health));
+                    float boom = Mult(expl[expl.Length - 1]);
+                    return new Dmg(Pct(boom), Tail: (r >= 1 ? $" in {N(r)}m" : "") + (health == null ? "" : " + " + health), Total: boom);
                 }
                 return health == null ? null : new Dmg(health, Weapon: false);
             }
@@ -431,10 +609,15 @@ internal static class RuneDescriber
             if (mults.Distinct().Count() == 1) pct = Pct(mults[0]);
             else if (_charged) { pct = $"{string.Join("/", mults.Select(m => Pct(m).TrimEnd('%')))}%"; tail = " by charge"; }
             else pct = Range(mults.Min(), mults.Max());
+            float total = mults.Distinct().Count() == 1 ? mults[0] : -1;
             if (explodes)
-                tail += $" + {Pct(Mult(expl[expl.Length - 1]))} explosion";
+            {
+                float boom = Mult(expl[expl.Length - 1]);
+                tail += $" + {Pct(boom)} explosion";
+                if (total > 0) total += boom;
+            }
             if (health != null) tail += " + " + health;
-            return new Dmg(pct, Tail: tail);
+            return new Dmg(pct, Tail: tail, Total: total);
         }
 
         /// <summary>DamagePayloads whose amount is ExpectedHealthAmountProvider: a fraction of the TARGET's expected
@@ -476,7 +659,7 @@ internal static class RuneDescriber
             if (projectile != null)
             {
                 var text = ProjectileText(projectile);
-                if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × " } : text);
+                if (text != null) _damage.Add(count > 1 ? text with { Count = $"{count} × ", Total = text.Total > 0 ? text.Total * count : -1 } : text);
             }
         }
 
@@ -507,6 +690,8 @@ internal static class RuneDescriber
                 case Il2Cpp.CascadeReactionType.DirectDamage:
                 {
                     float m = Mult(_base, s.Damage.Damage);
+                    _schools.Add(s.Damage.Damage.DamageSchool != DamageSchool.None ? s.Damage.Damage.DamageSchool : _base.DamageSchool);
+                    _knockdown |= s.Damage.Damage.KnockDown;
                     float lo = 1, hi = 1;
                     var curve = s.Damage.DamageMultiplierDueToCharge;
                     if (curve != null && curve.Count > 0) // an empty curve means x1
@@ -520,7 +705,8 @@ internal static class RuneDescriber
                         if (s.Damage.Damage.KnockDown || _base.KnockDown) _damage.Add(new Dmg("knockdown, no damage", Weapon: false));
                         break;
                     }
-                    var d = new Dmg(Range(m * lo, m * hi), Tail: Pct(m * lo) != Pct(m * hi) ? " by charge" : "");
+                    bool byCharge = Pct(m * lo) != Pct(m * hi);
+                    var d = new Dmg(Range(m * lo, m * hi), Tail: byCharge ? " by charge" : "", Total: byCharge || repeat > 0 ? -1 : m * hi);
                     float duration = owner == null ? 0 : F(owner.InstanceDuration);
                     bool unique = s.Damage.UniqueDamageId || s.Reaction == Il2Cpp.CascadeReactionType.DirectDamage;
                     bool moving = owner != null && owner.MovementBehaviour == CascadeMovementBehaviour.UseVelocity
@@ -544,7 +730,8 @@ internal static class RuneDescriber
                     var fx = s.SpecialEffect;
                     if (fx == null) break;
                     bool allies = ((int)fx.Targeting & (int)Il2Cpp.CascadeTargetingMode.Friendlies) != 0;
-                    Payloads(fx.Payload, repeat, allies);
+                    float reach = owner == null ? 0 : F(owner.InstanceRadius) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
+                    Payloads(fx.Payload, repeat, allies, reach);
                     break;
                 }
                 case Il2Cpp.CascadeReactionType.SpawnEntity:
@@ -616,7 +803,7 @@ internal static class RuneDescriber
                 : new Dmg(Pct(mult), Unit: "/s", Tail: span, Prefix: "up to ");
         }
 
-        private void Payloads(PayloadData? data, float repeat, bool allies)
+        private void Payloads(PayloadData? data, float repeat, bool allies, float reach = 0)
         {
             if (data?.Payloads == null) return;
             foreach (var p in data.Payloads)
@@ -642,7 +829,11 @@ internal static class RuneDescriber
                 if (v <= 0) continue;
                 string who = allies ? " to you and allies" : "";
                 string verb = unit == "HP" ? "Heals" : "Restores";
-                _heals.Add(repeat > 0 ? $"{verb} {N(v / repeat)} {unit}/s{who}" : $"{verb} {N(v)} {unit}{who}"); // repeat = seconds per tick
+                string amount = repeat > 0 ? $"{verb} {N(v / repeat)} {unit}/s" : $"{verb} {N(v)} {unit}"; // repeat = seconds per tick
+                _heals.Add(amount + who);
+                _healsDetailed.Add(amount + (allies && reach >= 1 ? $" to you and allies within {N(reach)}m" : who));
+                if (unit == "HP") { if (repeat > 0) _healPerSecond += v / repeat; else _healInstant += v; }
+                else if (repeat > 0) { _restorePerSecond += v / repeat; _restoreUnit = unit; }
             }
         }
 

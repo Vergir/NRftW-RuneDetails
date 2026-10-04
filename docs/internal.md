@@ -324,4 +324,13 @@ armor.
    damage and element, poise / knockdown, reach / radius, first-hit timing, immunity windows, damage per Focus, the
    real cost ("needs 25, spends 5"), and replacing the "Slot this Rune into a Bow…" line with something like
    `Bow · Rune Attack` (English only). NOT wanted: absolute "base enemy HP" numbers by enemy level.
+   **Built 2026-10-04 as layout A** (`RuneLayout.cs`; walker `DetailedLines`): grey labelled lines after the game's
+   text; the "Slot this Rune into a X…" line becomes "X" (English regex; removed for Utility). Lines: `Damage:` (WPN
+   shorthand, element only when the rune sets its own), `Effect:` (heals/buffs, ally radius), `Cost:` (drain, needs/
+   spends), `Poise: +N vs normal hits` (×10 display units) `· Knockback: light/strong/very strong/knockdown` (melee
+   only), `Timing:` (invulnerable windows from sections 7/47, first hit, `lockout` = first Interruptible window that
+   allows a dodge, `, attacks` when later; mapped along the chosen branch; channels: starts / hold up to; nothing for
+   charged spells), `Efficiency:` (% WPN per resource when every part is a known weapon multiple; HP or Focus per
+   resource for channels). **Unverified:** lockout / first-hit times (Lightning Leap's events lie past its 1.17 s
+   timeline and its in-game hits came earlier than the data; Swipe Kick's lockout 0.37 s is before its 0.6 s hit).
    **At release time, remind the user:** "hold a key (e.g. Shift) to see the detailed text" as an option for 1.1.
