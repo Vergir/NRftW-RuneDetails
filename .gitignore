@@ -4,3 +4,5 @@ obj/
 *.user
 tools/timing/*.pkl
 dist/
+docs/pics/*.png
+docs/pics/nexus/_tile_*.png
