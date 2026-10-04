@@ -4,7 +4,7 @@ nexus-pages/shots/RuneDetails/SHOTLIST.md).
 Needs Pillow and numpy (pip install pillow numpy). Usage: python make_nexus_images.py [--thumbs]
 Raw screenshots (git-ignored) are 2878 px wide with black bars above and below a 2878x1620 game frame; the frame top
 is detected. All boxes below are in frame pixels (raw resolution, bars removed): left, top, right, bottom.
-House rules (nexus-pages/house-rules.md): captions and a thin 2 px box are the only highlighting; no dimming, no zoom
+House rules (nexus-pages/house-rules.md): captions and a rounded box are the only highlighting; no dimming, no zoom
 insets, no arrows; the main image is 16:9 with the mod name as the biggest text at 1/6 of the height.
 """
 import os
@@ -23,7 +23,7 @@ FW, FH = 2878, 1620
 # The whole tooltip panel, and the lines the mod adds, of the Air Dodge tooltip in the three modes.
 PANEL = {"01_inv_off": (875, 298, 1555, 785), "02_inv_brief": (875, 298, 1555, 824),
          "03_inv_detailed": (875, 298, 1555, 934)}
-ADDED = {"02_inv_brief": (902, 656, 1205, 690), "03_inv_detailed": (902, 552, 1500, 800)}
+ADDED = {"02_inv_brief": (902, 661, 1205, 692), "03_inv_detailed": (902, 552, 1500, 800)}
 
 # Gallery shots: a 16:9 window of the frame, the added lines boxed, the caption and the free corner it goes in.
 GALLERY = [
@@ -57,10 +57,13 @@ def brighten(im, k=1.1):
     return ImageEnhance.Brightness(im).enhance(k)
 
 
-def box(img, b, scale=1.0, dx=0, dy=0, pad=8):
+def box(img, b, scale=1.0, dx=0, dy=0, pad=10, ref=None):
+    """The highlight: a rounded gold outline, 5 px and radius 14 at a 1080 px tall image (ref = that image's height)."""
+    k = (ref or img.height) / 1080
     l, t, r, bt = b
-    ImageDraw.Draw(img).rectangle((round(l * scale) + dx - pad, round(t * scale) + dy - pad,
-                                   round(r * scale) + dx + pad, round(bt * scale) + dy + pad), outline=GOLD, width=2)
+    ImageDraw.Draw(img).rounded_rectangle((round(l * scale) + dx - pad, round(t * scale) + dy - pad,
+                                           round(r * scale) + dx + pad, round(bt * scale) + dy + pad),
+                                          round(14 * k), outline=GOLD, width=max(3, round(5 * k)))
 
 
 def label(img, text, xy, size, anchor="la"):
@@ -108,7 +111,7 @@ def panels(names, labels, width, gap, size):
         img.paste(c, (x, lab_h))
         if n in ADDED:
             box(img, (ADDED[n][0] - PANEL[n][0], ADDED[n][1] - PANEL[n][1], ADDED[n][2] - PANEL[n][0],
-                      ADDED[n][3] - PANEL[n][1]), scale, x, lab_h, pad=6)
+                      ADDED[n][3] - PANEL[n][1]), scale, x, lab_h, pad=8, ref=H)
         label(img, lbl, (x + size // 4, lab_h - size // 2), size, anchor="lb")
         x += c.width + gap
     return img, scale
