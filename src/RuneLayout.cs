@@ -19,13 +19,15 @@ internal static class RuneLayout
 {
     private const string LabelColor = "#9A9A9A", ValueColor = "#D9D9D9", NumberColor = "#F2E6BD";
 
-    /// <summary>Words with a colour of their own. Elements and resources: placeholders until the game's own colours
-    /// are confirmed. Knockdown and friendly fire stand out (rare effects).</summary>
+    /// <summary>Words with a colour of their own, taken from the game (2026-10-04):
+    /// elements = the TMP "Default Style Sheet" styles the game wraps element words and damage numbers in ([!sFire]);
+    /// Focus = the rune slots' Focus-cost text; Stamina = the bright end of the HUD stamina ring texture; Health and the
+    /// friendly-fire warning = the sheet's "Negative" style; Knockdown = its "Heavy" style.</summary>
     private static readonly Dictionary<string, string> WordColors = new()
     {
-        ["Focus"] = "#E8C547", ["Stamina"] = "#7CC46A", ["Health"] = "#D9534F", ["HP"] = "#D9534F",
-        ["Fire"] = "#F08A3C", ["Ice"] = "#8FD3F5", ["Lightning"] = "#F5E05A", ["Plague"] = "#A3C94A", ["Bleed"] = "#C0392B",
-        ["Knockdown"] = "#E07B39", ["also hits allies"] = "#E05A4F",
+        ["Focus"] = "#F3EC04", ["Stamina"] = "#44A11D", ["Health"] = "#F15E4B", ["HP"] = "#F15E4B",
+        ["Fire"] = "#F09000", ["Ice"] = "#80C0F0", ["Lightning"] = "#D0C000", ["Plague"] = "#9060F0", ["Bleed"] = "#F07070",
+        ["Knockdown"] = "#B79052", ["also hits allies"] = "#F15E4B",
     };
 
     // English only: other languages keep the game's line. "Slot this Rune into a <color=…>Wand</color> or a
