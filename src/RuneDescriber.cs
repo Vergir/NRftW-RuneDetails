@@ -110,8 +110,9 @@ internal static class RuneDescriber
         {
             if (i % 2 == 0) { sb.Append(parts[i]); continue; }
             float mult = float.Parse(parts[i], CultureInfo.InvariantCulture);
-            // Brief "≈161 dmg, scales with weapon's level"; detailed "DMG: ≈161 (scales with weapon's level)".
-            string amount = expected is { } e ? $"≈{Math.Round(mult * e)}" + (detailed ? "" : " dmg") : $"{Pct(mult)} base dmg";
+            // Brief "~161 dmg, scales with weapon's level"; detailed "DMG: ~161 (scales with weapon's level)". "~", not
+            // "≈": the info panels' font lacks "≈" and its fallback font's taller line pushed the line down.
+            string amount = expected is { } e ? $"~{Math.Round(mult * e)}" + (detailed ? "" : " dmg") : $"{Pct(mult)} base dmg";
             sb.Append(amount + (detailed ? " (scales with weapon's level)" : ", scales with weapon's level"));
         }
         return sb.ToString();
@@ -389,7 +390,7 @@ internal static class RuneDescriber
                 var hit = new List<string>();
                 float offset = F(_base.BasePoiseOffset) * 10, factor = 1 + F(_base.PoisePercentageModifier);
                 bool hasOffset = Math.Abs(offset) >= 0.5f, hasFactor = Math.Abs(factor - 1) >= 0.005f;
-                string plus = hasOffset ? $"WPN {(offset > 0 ? "+" : "−")} {N(Math.Abs(offset))}" : "WPN";
+                string plus = hasOffset ? $"WPN {(offset > 0 ? "+" : "-")} {N(Math.Abs(offset))}" : "WPN";
                 if (hasOffset || hasFactor)
                     hit.Add("Poise DMG: " + (hasFactor ? $"{(hasOffset ? $"({plus})" : plus)} × {N(factor)}" : plus) + (_meleeHits > 1 ? " per hit" : ""));
                 float kick = F(_base.KickbackMulti);
@@ -399,7 +400,7 @@ internal static class RuneDescriber
                 else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: ×{N(kick)}");
                 // Stagger-bar points (bar 100, not x10), GetStaggerDamage @0x5C084F0.
                 if (_staggerHits > 0)
-                    hit.Add($"Stagger: {(_stagger > 0 ? "+" : "−")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits}/{_meleeHits} hits"));
+                    hit.Add($"Stagger: {(_stagger > 0 ? "+" : "-")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits}/{_meleeHits} hits"));
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
             else if (_knockdown) lines.Add("Knockdown");
@@ -434,7 +435,7 @@ internal static class RuneDescriber
                 paid.TryGetValue(resource, out float upfront);
                 float Ratio(float t) => _tickAmount * ((float)Math.Floor(t / _tickEvery + 0.001f) + 1) / (upfront + perTick * perSecond * t);
                 string unit = _healPerSecond > 0 ? "HP" : _restoreUnit ?? "";
-                string R(float x) => Math.Round(x, 2).ToString(CultureInfo.InvariantCulture);
+                string R(float x) => x.ToString("0.00", CultureInfo.InvariantCulture);
                 float full = channelCap > 1 ? Ratio(channelCap) : -1, one = Ratio(1);
                 lines.Add($"Efficiency: {(full > 0 && R(full) != R(one) ? $"{R(Math.Min(one, full))}–{R(Math.Max(one, full))}" : R(one))} {unit} per {resource}"
                     + (full > 0 ? $" (1–{S(channelCap)}s)" : ""));
@@ -467,8 +468,9 @@ internal static class RuneDescriber
             if (drains.Count > 0)
             {
                 // Channels: "5 Health to cast (needs 25), 48 Health/s to channel" (the hold limit is on the Effect line).
-                for (int i = 0; i < parts.Count; i++)
-                    parts[i] = parts[i].Contains(" (needs ") ? parts[i].Replace(" (needs ", " to cast (needs ") : parts[i] + " to cast";
+                // The shown cost, although only Cost is paid upfront (5 of 25): reads better (user choice, 2026-10-04).
+                parts.Clear();
+                foreach (var (resource, total) in shown) parts.Add($"{N(total)} {resource} to cast");
                 foreach (var (resource, amount) in drains) parts.Add($"{Math.Round(amount * perSecond)} {resource}/s to channel");
                 return (string.Join(", ", parts), true);
             }
@@ -528,7 +530,7 @@ internal static class RuneDescriber
                     if (e != null) { first = Math.Min(first, F(e.StartTime)); recovery = Math.Max(recovery, F(e.StartTime)); }
 
             var timing = new List<string>();
-            if (first < float.MaxValue) timing.Add($"Cast time: {S(RealTime(first))}s");
+            if (first < float.MaxValue) timing.Add($"Cast Time: {S(RealTime(first))}s");
 
             // Lockout: when a dodge can cut the rune short.
             bool procedural = action.UseProceduralInterrupts && ((int)action.ActionType & 0x20E) != 0;

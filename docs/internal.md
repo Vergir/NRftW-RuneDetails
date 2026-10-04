@@ -326,7 +326,7 @@ armor.
   ` + ` and "weapon dmg" said once (`400% weapon dmg + 400% in 2.5m`); fast moving areas as `wave`
   (`200% weapon dmg + 200% wave`); drop `1 shot ×`.
 - **Wording they chose or approved:**
-  - `≈161 dmg, grows with weapon LVL, not weapon DMG`
+  - `~161 dmg, scales with weapon's level`
   - `70% weapon dmg + 30% of base enemy HP` (was "typical enemy HP"; chosen 2026-10-03)
   - `up to 350% weapon dmg/s for 4s`
   - `Heals 40 HP`

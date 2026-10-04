@@ -21,7 +21,7 @@ context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_
 | throws | `70% weapon dmg + 30% of base enemy HP` (Throw Axe), `100% weapon dmg + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
 | waves and traps | `200% weapon dmg + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
 | no damage | `knockdown, no damage` (Scream) |
-| kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `≈161 dmg, grows with weapon LVL, not weapon DMG` with a weapon drawn; `≈153 dmg, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base dmg, …` outside a game |
+| kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `~161 dmg, scales with weapon's level` with a weapon drawn; `≈153 dmg, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base dmg, …` outside a game |
 
 Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). Item and
 utility-slot tooltips get the details appended in-line; the Runes menu shows only the effect's first sentence (it

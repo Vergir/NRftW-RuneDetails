@@ -37,11 +37,11 @@ internal static class RuneLayout
     private static readonly Regex Tags = new("<[^>]+>", RegexOptions.Compiled);
 
     // A label ("DMG:", "Poise DMG:" at a line start or after " · "), a coloured word, or a number with its sign, range
-    // and unit: "+20", "−20%", "130/150/200%", "3–10", "0.93", "×2", "≈83".
+    // and unit: "+20", "-20%", "130/150/200%", "3–10", "0.93", "×2", "~83".
     private static readonly Regex Token = new(
-        @"(?<label>(?<=^|· )[A-Z][A-Za-z]*(?: [A-Za-z]+)?:)"
+        @"(?<label>(?<=^|· )[A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)?:)"
         + "|(?<word>" + string.Join("|", WordColors.Keys.OrderByDescending(k => k.Length).Select(k => @"\b" + Regex.Escape(k) + @"\b")) + ")"
-        + @"|[+−≈×]?\d[\d.]*(?:[–/]\d[\d.]*)*%?", RegexOptions.Compiled);
+        + @"|[+\-~×]?\d[\d.]*(?:[–/]\d[\d.]*)*%?", RegexOptions.Compiled);
 
     /// <summary>Our Type and plain Cost lines as last written ("…\n"): TypeCostDedup removes exactly this text where the game
     /// shows its own type/cost row. (A TMP link tag around them added a gap below in the info panels.)</summary>
