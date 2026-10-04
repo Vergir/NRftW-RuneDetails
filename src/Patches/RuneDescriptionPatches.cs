@@ -11,9 +11,6 @@ internal enum RuneView
     Tooltip,
     /// <summary>InventoryItemInfoElement.PopulateRuneData: hovering a utility rune slot. Full text.</summary>
     UtilitySlot,
-    /// <summary>VendorScreenV2.ShowItemInfoForSlot: a rune in a vendor's stock. Full text, but the vendor's tooltip
-    /// shows neither the rune's type nor its cost.</summary>
-    Vendor,
     /// <summary>RuneScreen.SetRuneNameText: a weapon's or the utility rune slots in the Runes menu. Shows only the
     /// second piece of the text split on ". " and "\n" (the effect's first sentence), so anything appended is cut.</summary>
     RuneScreen,
@@ -60,7 +57,7 @@ internal static class RuneDescriptionPatch
                 RuneViewContext.RuneScreenDescription = __result;
                 return;
             }
-            __result = RuneLayout.Tooltip(__result, text, Prefs.Level, RuneViewContext.Current);
+            __result = RuneLayout.Tooltip(__result, text, Prefs.Level);
         }
         catch (System.Exception e)
         {
@@ -73,14 +70,6 @@ internal static class RuneDescriptionPatch
 internal static class UtilitySlotPatch
 {
     static void Prefix() => RuneViewContext.Enter(RuneView.UtilitySlot);
-    static void Postfix() => RuneViewContext.Exit();
-}
-
-/// <summary>VendorScreenV2.ShowItemInfoForSlot(ItemSlot) (a class parameter, safe to patch) fills the vendor's info pane.</summary>
-[HarmonyPatch(typeof(VendorScreenV2), "ShowItemInfoForSlot")]
-internal static class VendorPatch
-{
-    static void Prefix() => RuneViewContext.Enter(RuneView.Vendor);
     static void Postfix() => RuneViewContext.Exit();
 }
 

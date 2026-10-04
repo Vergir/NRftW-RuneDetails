@@ -28,7 +28,7 @@ internal static class RuneLayout
     {
         ["Focus"] = "#F3EC04", ["Stamina"] = "#44A11D", ["Health"] = "#F15E4B", ["HP"] = "#F15E4B",
         ["Fire"] = "#F09000", ["Ice"] = "#80C0F0", ["Lightning"] = "#D0C000", ["Plague"] = "#9060F0", ["Bleed"] = "#F07070",
-        ["Knockdown"] = "#B79052", ["also hits allies"] = "#F15E4B",
+        ["Knockdown"] = "#B79052",
     };
 
     // English only: other languages keep the game's line. "Slot this Rune into a <color=…>Wand</color> or a
@@ -43,13 +43,19 @@ internal static class RuneLayout
         + "|(?<word>" + string.Join("|", WordColors.Keys.OrderByDescending(k => k.Length).Select(k => @"\b" + Regex.Escape(k) + @"\b")) + ")"
         + @"|[+−≈×]?\d[\d.]*(?:[–/]\d[\d.]*)*%?", RegexOptions.Compiled);
 
-    /// <summary>The whole description (item tooltip, utility slot, vendor): brief appended in-line, or detailed.</summary>
-    public static string Tooltip(string description, RuneDescriber.RuneText text, DetailLevel level, RuneView view)
+    /// <summary>Wraps our Type and plain Cost lines; TypeCostDedup removes it where the game shows its own row.</summary>
+    public const string MarkOpen = "<link=\"rd-tc\">", MarkClose = "</link>";
+
+    /// <summary>Set when a detailed tooltip was built: TypeCostDedup then checks the open info panels for a few frames.</summary>
+    public static int PendingDedupFrames;
+
+    /// <summary>The whole description (item tooltip, utility slot, vendor, …): brief appended in-line, or detailed.</summary>
+    public static string Tooltip(string description, RuneDescriber.RuneText text, DetailLevel level)
     {
         if (level == DetailLevel.Detailed && text.Lines.Count > 0)
         {
-            bool full = view == RuneView.Vendor; // the vendor's tooltip shows neither the type nor the cost
-            return Effect(description).TrimEnd() + "\n\n" + Block(text, full ? Slot(description) : null, full || text.CostNotable);
+            PendingDedupFrames = 3;
+            return Effect(description).TrimEnd() + "\n\n" + Block(text, Slot(description));
         }
         return text.Brief == null ? description : description.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", text.Brief);
     }
@@ -58,7 +64,7 @@ internal static class RuneLayout
     public static string RuneScreen(string sentence, string? description, RuneDescriber.RuneText text, DetailLevel level)
     {
         if (level == DetailLevel.Detailed && text.Lines.Count > 0)
-            return sentence.TrimEnd() + "\n\n" + Block(text, description == null ? null : Slot(description), true);
+            return sentence.TrimEnd() + "\n\n" + Block(text, description == null ? null : Slot(description));
         return text.Brief == null ? sentence : sentence.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", text.Brief);
     }
 
@@ -69,10 +75,18 @@ internal static class RuneLayout
         foreach (var line in text.Lines) yield return Colour(line);
     }
 
-    private static string Block(RuneDescriber.RuneText text, string? slot, bool withCost)
+    /// <summary>Type and cost first, then the lines. The type and a plain cost are the facts the game's own type/cost
+    /// row shows, so they are marked for TypeCostDedup; a cost that says more (a drain, "5 Focus (needs 25)") stays.</summary>
+    private static string Block(RuneDescriber.RuneText text, string? slot)
     {
-        var lines = ColourLines(text, withCost).ToList();
-        if (slot != null) lines.Insert(0, Wrap(NumberColor, slot));
+        var marked = new List<string>();
+        var always = new List<string>();
+        if (slot != null) marked.Add(Wrap(NumberColor, slot));
+        if (text.Cost != null) (text.CostNotable ? always : marked).Add(Colour("Cost: " + text.Cost));
+        var lines = new List<string>();
+        if (marked.Count > 0) lines.Add(MarkOpen + string.Join("\n", marked) + MarkClose);
+        lines.AddRange(always);
+        lines.AddRange(ColourLines(text, withCost: false));
         return string.Join("\n", lines);
     }
 

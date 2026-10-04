@@ -120,17 +120,44 @@ internal static class RuneDescriber
     /// <summary>Expected weapon damage for the local hero: exact (the game's own hero path) while a weapon is drawn;
     /// in town the weapons are put away and the game has no mainhand, so every main-hand weapon set's item level is
     /// evaluated instead and averaged (tooltips stay short). Null outside a game.</summary>
+    private static HeroView? _localHero;
+    private static int _liveFrame = -1;
+    private static float? _liveValue;
+
+    /// <summary>Once per frame: a tooltip asks for its text twice and every kick line resolves the value, and
+    /// FindObjectsOfType walks the whole scene (it froze the game for ~0.5s per kick hover, 2026-10-04). The local
+    /// HeroView is kept until it is destroyed.</summary>
     private static float? LiveExpectedWeaponDamage()
+    {
+        int frame = UnityEngine.Time.frameCount;
+        if (frame != _liveFrame)
+        {
+            _liveFrame = frame;
+            _liveValue = ComputeLiveExpectedWeaponDamage();
+        }
+        return _liveValue;
+    }
+
+    private static HeroView? LocalHero()
+    {
+        if (_localHero != null && _localHero.IsLocalPlayer) return _localHero;
+        _localHero = null;
+        foreach (var view in UnityEngine.Object.FindObjectsOfType<HeroView>())
+            if (view != null && view.IsLocalPlayer) { _localHero = view; break; }
+        return _localHero;
+    }
+
+    private static float? ComputeLiveExpectedWeaponDamage()
     {
         try
         {
             // HeroView.IsLocalPlayer gives the hero entity and the current verified frame. Only a hero entity takes the
             // weapon branch of GetExpectedWeaponDamage (an NPC or an unarmed hero falls back to character level).
-            foreach (var view in UnityEngine.Object.FindObjectsOfType<HeroView>())
+            var view = LocalHero();
+            if (view != null)
             {
-                if (view == null || !view.IsLocalPlayer) continue;
                 var frame = view.VerifiedFrame;
-                if (frame == null) continue;
+                if (frame == null) return null;
                 var hero = view.EntityRef;
                 if (EquipmentAPI.GetEquippedMainhand(frame, hero).Index != 0 || EquipmentAPI.GetEquippedOffhand(frame, hero).Index != 0)
                 {
@@ -230,6 +257,8 @@ internal static class RuneDescriber
         private const string KnockdownOnly = "knockdown, no damage";
         /// <summary>Where a weapon-scaled part inside a tail takes the weapon word (detailed "WPN", brief nothing).</summary>
         private const string WeaponMark = "\u0001";
+        /// <summary>Area parts that do / do not hit co-op allies (CascadeDamageSettings.FriendlyFire): detailed only.</summary>
+        private const string HitsAllies = "\u0002", SparesAllies = "\u0003";
         private float _restorePerSecond;
         private string? _restoreUnit;
         private float _firstHit = float.MaxValue;
@@ -317,7 +346,9 @@ internal static class RuneDescriber
             {
                 string unit = d.Weapon && (everyPart || !named) ? weaponWord + d.Unit : d.Unit;
                 named |= d.Weapon;
-                texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{d.Tail.Replace(WeaponMark, everyPart ? weaponWord : "")}");
+                string tail = d.Tail.Replace(WeaponMark, everyPart ? weaponWord : "")
+                    .Replace(HitsAllies, everyPart ? " (hits allies)" : "").Replace(SparesAllies, everyPart ? " (doesn't hit allies)" : "");
+                texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{tail}");
             }
             return texts.Count > 0 ? string.Join(" + ", texts.Distinct()) : null;
         }
@@ -367,21 +398,17 @@ internal static class RuneDescriber
                 else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: ×{N(kick)}");
                 // Stagger-bar points (bar 100, not x10), GetStaggerDamage @0x5C084F0.
                 if (_staggerHits > 0)
-                    hit.Add($"Stagger: {(_stagger > 0 ? "+" : "−")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits} of {_meleeHits} hits"));
+                    hit.Add($"Stagger: {(_stagger > 0 ? "+" : "−")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits}/{_meleeHits} hits"));
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
             else if (_knockdown) lines.Add("Knockdown");
-            // Hyper armor: ActionData.PowerArmour is flat Poise Defense (x10 shown) on top of yours while the attack
-            // cannot be cancelled yet (PrecalculatePoiseDamage @0x5C0F6C0): fewer flinches, no damage reduction.
-            float armour = F(action.PowerArmour) * 10;
-            if (armour >= 0.5f) lines.Add($"Hyper armor: +{N(armour)} Poise DEF until Lockout");
             lines.AddRange(_notes);
             if (magic == null && action.TryCast<BowAttackData>() == null && action.TryCast<BowMultishotAttackData>() == null)
                 TimingLines(action, lines);
-
-            // Timings (first hit, lockout, invulnerable windows) are left out until they are modelled: the timeline's
-            // section times did not match the game (2026-10-04: Crushing Flurry and Swipe Kick cannot be dodged out of
-            // where their Interruptible windows start; attack segments are rescaled at run time). See docs/internal.md.
+            // Hyper armor: ActionData.PowerArmour is flat Poise Defense (x10 shown) on top of yours while the attack
+            // cannot be cancelled yet (PrecalculatePoiseDamage @0x5C0F6C0): fewer flinches, no damage reduction.
+            float armour = F(action.PowerArmour) * 10;
+            if (armour >= 0.5f) lines.Add($"+{N(armour)} Poise while casting");
 
             // Efficiency per point of what the press actually spends.
             var paid = Totals(action.Cost);
@@ -508,7 +535,7 @@ internal static class RuneDescriber
                 // (after normal attacks; IsLastMoveInCombo @0x5B87260).
                 float r = Math.Min(end, recovery + F(action.RecoveryTimeOffset));
                 float free = RealTime(r + AttackInterruptByAction * (end - r)), combo = RealTime(r + AttackInterruptByActionLastInCombo * (end - r));
-                timing.Add($"Lockout: {S(free)}s" + (combo > free + 0.02f ? $" ({S(combo)}s after a combo)" : ""));
+                timing.Add($"Lockout: {S(free)}s" + (combo > free + 0.02f ? $" (combo: {S(combo)}s)" : ""));
             }
             else if (tl.Sections != null)
             {
@@ -737,8 +764,7 @@ internal static class RuneDescriber
             float r = F(trap.ExplosionRadius), life = F(trap.MaxTimeActive);
             var facts = new List<string>();
             if (life > 0) facts.Add($"waits up to {S(life)}s");
-            if (trap.AllowFriendlyFire) facts.Add("also hits allies");
-            if (facts.Count > 0) _notes.Add("Mine: " + string.Join(", ", facts));
+            if (facts.Count > 0) _notes.Add("Mine: " + string.Join(", ", facts) + (trap.AllowFriendlyFire ? " (hits allies)" : " (doesn't hit allies)"));
             return health == null ? "" : $" + {health.Replace(" of base enemy HP", "")} mine{(r >= 1 ? $" in {N(r)}m" : "")}";
         }
 
@@ -848,6 +874,8 @@ internal static class RuneDescriber
                     d = Repeat(d, m * hi, repeat, duration, unique, _channelled);
                     float radius = owner == null ? 0 : F(owner.InstanceRadius) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
                     if (radius >= 2) d = d with { Tail = d.Tail + $" in {N(radius)}m" };
+                    // Every direct hit can hurt co-op partners; areas follow their flag (docs/internal.md).
+                    if (s.Reaction == Il2Cpp.CascadeReactionType.DamageArea) d = d with { Tail = d.Tail + (s.Damage.FriendlyFire ? HitsAllies : SparesAllies) };
                     _damage.Add(d);
                     break;
                 }

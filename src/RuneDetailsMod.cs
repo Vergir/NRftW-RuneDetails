@@ -36,12 +36,27 @@ public class RuneDetailsMod : MelonMod
         LoggerInstance.Msg("Patches applied.");
         try { RuneDescriber.SelfTest(); } catch (Exception e) { LoggerInstance.Warning("Rune self-test: " + e); }
 
+        // After a hot reload the info panels already exist; their OnEnable postfix has not run.
+        try
+        {
+            foreach (var panel in UnityEngine.Resources.FindObjectsOfTypeAll<Il2CppMoon.Forsaken.InventoryItemInfoElement>())
+                if (panel != null) TypeCostDedup.Register(panel);
+        }
+        catch (Exception e) { LoggerInstance.Warning("Registering info panels: " + e.Message); }
+
         // After a hot reload the settings screens already exist; the Initialize postfix will not run for them.
         if (Prefs.AddSettingsRows.Value)
         {
             try { SettingsRows.AddToLiveScreens(); }
             catch (Exception e) { LoggerInstance.Warning("Adding rows to live settings screens: " + e.Message); }
         }
+    }
+
+    /// <summary>After the UI has updated: drop our Type/Cost lines where the game shows its own row (TypeCostDedup).</summary>
+    public override void OnLateUpdate()
+    {
+        if (Prefs.Enabled is null || !Prefs.Enabled.Value) return;
+        TypeCostDedup.Tick();
     }
 
     /// <summary>Development audit (see RuneDescriber.SelfTest): the asset database is ready only after the first scenes.</summary>
