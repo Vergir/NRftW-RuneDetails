@@ -267,6 +267,22 @@ def collage_shots(spec):
     return out
 
 
+def header():
+    """Nexus page header, 1300x372, in Enchantment Details' layout: a 1:1 window of the Runes menu (1920 scale) with the
+    rune slots and the Detailed lines on the left, fading to black on the right under the title."""
+    full = brighten(frame("04_runes_menu")).resize((W, H), Image.LANCZOS)
+    x0, y0 = 455, 362
+    img = full.crop((x0, y0, x0 + 1300, y0 + 372))
+    grad = Image.linear_gradient("L").rotate(90).resize((1300, 372))
+    img = Image.composite(Image.new("RGB", img.size, (0, 0, 0)), img,
+                          grad.point(lambda v: 0 if v < 140 else min(235, int((v - 140) * 4))))
+    d = ImageDraw.Draw(img)
+    d.text((1260, 150), "Rune Details", font=font(60), fill="white", anchor="rm")
+    d.text((1262, 225), "What every rune really does", font=ImageFont.truetype(FONT.replace("segoeuib", "segoeui"), 28),
+           fill=GOLD, anchor="rm")
+    save(img, "header.jpg")
+
+
 def thumbs(img):
     """The listing-tile test (style guide section 7): 300 and 170 px renders next to the outputs."""
     for w, h in ((300, 169), (170, 96)):
@@ -278,6 +294,7 @@ def thumbs(img):
 if __name__ == "__main__":
     tile = main_image()
     gallery()
+    header()
     collage("2_collage_detailed.jpg", collage_shots(COLLAGE_DETAILED), 4, "Detailed")
     collage("3_collage_brief.jpg", collage_shots(COLLAGE_BRIEF), 4, "Brief")
     if "--thumbs" in sys.argv:
