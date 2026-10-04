@@ -39,12 +39,13 @@ internal static class RuneLayout
     // A label ("DMG:", "Poise DMG:" at a line start or after " · "), a coloured word, or a number with its sign, range
     // and unit: "+20", "−20%", "130/150/200%", "3–10", "0.93", "×2", "≈83".
     private static readonly Regex Token = new(
-        @"(?<label>(?<=^|· )[A-Z][A-Za-z]*(?: [A-Z][A-Za-z]*)?:)"
+        @"(?<label>(?<=^|· )[A-Z][A-Za-z]*(?: [A-Za-z]+)?:)"
         + "|(?<word>" + string.Join("|", WordColors.Keys.OrderByDescending(k => k.Length).Select(k => @"\b" + Regex.Escape(k) + @"\b")) + ")"
         + @"|[+−≈×]?\d[\d.]*(?:[–/]\d[\d.]*)*%?", RegexOptions.Compiled);
 
-    /// <summary>Wraps our Type and plain Cost lines; TypeCostDedup removes it where the game shows its own row.</summary>
-    public const string MarkOpen = "<link=\"rd-tc\">", MarkClose = "</link>";
+    /// <summary>Our Type and plain Cost lines as last written ("…\n"): TypeCostDedup removes exactly this text where the game
+    /// shows its own type/cost row. (A TMP link tag around them added a gap below in the info panels.)</summary>
+    public static readonly HashSet<string> MarkedBlocks = new();
 
     /// <summary>Set when a detailed tooltip was built: TypeCostDedup then checks the open info panels for a few frames.</summary>
     public static int PendingDedupFrames;
@@ -55,7 +56,9 @@ internal static class RuneLayout
         if (level == DetailLevel.Detailed && text.Lines.Count > 0)
         {
             PendingDedupFrames = 3;
-            return Effect(description).TrimEnd() + "\n\n" + Block(text, Slot(description));
+            // One line break and a half-height empty line: the info panels' text adds paragraph spacing at each break,
+            // so the plain empty line the Runes menu uses looks too tall there.
+            return Effect(description).TrimEnd() + "\n<size=50%> </size>\n" + Block(text, Slot(description));
         }
         return text.Brief == null ? description : description.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", text.Brief);
     }
@@ -84,7 +87,12 @@ internal static class RuneLayout
         if (slot != null) marked.Add(Wrap(NumberColor, slot));
         if (text.Cost != null) (text.CostNotable ? always : marked).Add(Colour("Cost: " + text.Cost));
         var lines = new List<string>();
-        if (marked.Count > 0) lines.Add(MarkOpen + string.Join("\n", marked) + MarkClose);
+        if (marked.Count > 0)
+        {
+            string block = string.Join("\n", marked);
+            MarkedBlocks.Add(block + "\n");
+            lines.Add(block);
+        }
         lines.AddRange(always);
         lines.AddRange(ColourLines(text, withCost: false));
         return string.Join("\n", lines);

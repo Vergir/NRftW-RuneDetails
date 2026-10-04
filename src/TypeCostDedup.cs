@@ -8,15 +8,13 @@ namespace RuneDetails;
 
 /// <summary>
 /// Detailed mode shows a rune's type and cost exactly once: the description always carries our Type and plain Cost
-/// lines inside a TMP link marker (RuneLayout.MarkOpen), and after the UI has updated, every open item info panel that
+/// lines (RuneLayout.MarkedBlocks remembers their exact text), and after the UI has updated, every open item info panel that
 /// shows the game's own type/cost row (InventoryItemInfoElement.RuneTypeElement: inventory, utility slots) gets the
 /// marked lines removed. Panels without that row (vendor, …) keep ours. The Runes menu builds its own text.
 /// </summary>
 internal static class TypeCostDedup
 {
     private static readonly List<InventoryItemInfoElement> Panels = new();
-    private static readonly Regex Marked = new(Regex.Escape(RuneLayout.MarkOpen) + ".*?" + Regex.Escape(RuneLayout.MarkClose) + @"\n?",
-        RegexOptions.Compiled | RegexOptions.Singleline);
 
     public static void Register(InventoryItemInfoElement panel)
     {
@@ -38,8 +36,9 @@ internal static class TypeCostDedup
                 var row = panel.RuneTypeElement;
                 if (text == null || row == null || !row.activeInHierarchy || !panel.gameObject.activeInHierarchy) continue;
                 string current = text.text;
-                if (current == null || !current.Contains(RuneLayout.MarkOpen)) continue;
-                text.text = Marked.Replace(current, "");
+                if (current == null) continue;
+                foreach (var block in RuneLayout.MarkedBlocks)
+                    if (current.Contains(block)) { text.text = current.Replace(block, ""); break; }
             }
             catch (Exception e)
             {

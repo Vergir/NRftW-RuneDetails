@@ -259,7 +259,7 @@ internal static class RuneDescriber
         private const string WeaponMark = "\u0001";
         /// <summary>Area parts that do / do not hit co-op allies (CascadeDamageSettings.FriendlyFire): detailed only.</summary>
         private const string HitsAllies = "\u0002", SparesAllies = "\u0003";
-        private float _restorePerSecond;
+        private float _restorePerSecond, _tickAmount, _tickEvery; // channel: whole-number amount per tick, seconds per tick
         private string? _restoreUnit;
         private float _firstHit = float.MaxValue;
         private float _release = -1; // first thrown projectile's release time (Cast time)
@@ -376,7 +376,8 @@ internal static class RuneDescriber
                 lines.Add("DMG: " + damage + (own.Count > 0 ? ", " + string.Join("/", own) : ""));
             }
             var effects = _healsDetailed.Concat(_buffs).Distinct().ToList();
-            if (effects.Count > 0) lines.Add("Effect: " + string.Join("; ", effects));
+            float channelCap = _channelled ? ChannelCap(tl) : 0;
+            if (effects.Count > 0) lines.Add("Effect: " + string.Join("; ", effects) + (channelCap > 0 ? $" for up to {S(channelCap)}s" : ""));
 
             float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
 
@@ -424,19 +425,19 @@ internal static class RuneDescriber
                 else if (_healInstant > 0 && spent > 0 && known.Count == 0 && _buffs.Count == 0) // a buff is part of the price
                     lines.Add($"Efficiency: {N(_healInstant / spent)} HP per {resource}");
             }
-            if (_healPerSecond > 0 && perSecond > 0 && magic?.ChargingCost != null)
+            // Channels: gained per point spent, from a 1s hold to the full one. The press pays its upfront cost, then the
+            // drain and the ticks run together (a tick at the start, then one every _tickEvery), so short holds are worse.
+            var drains = Totals(magic?.ChargingCost);
+            if (_tickAmount > 0 && _tickEvery > 0 && perSecond > 0 && drains.Count == 1)
             {
-                float drain = Totals(magic.ChargingCost).Values.Sum() * perSecond;
-                if (drain > 0) lines.Add($"Efficiency: {Math.Round(_healPerSecond / drain, 2).ToString(CultureInfo.InvariantCulture)} HP per Focus");
-            }
-            if (_restorePerSecond > 0 && perSecond > 0 && magic?.ChargingCost != null)
-            {
-                var drains = Totals(magic.ChargingCost);
-                if (drains.Count == 1)
-                {
-                    var (resource, amount) = drains.First();
-                    lines.Add($"Efficiency: {Math.Round(_restorePerSecond / (amount * perSecond), 2).ToString(CultureInfo.InvariantCulture)} {_restoreUnit} per {resource}");
-                }
+                var (resource, perTick) = drains.First();
+                paid.TryGetValue(resource, out float upfront);
+                float Ratio(float t) => _tickAmount * ((float)Math.Floor(t / _tickEvery + 0.001f) + 1) / (upfront + perTick * perSecond * t);
+                string unit = _healPerSecond > 0 ? "HP" : _restoreUnit ?? "";
+                string R(float x) => Math.Round(x, 2).ToString(CultureInfo.InvariantCulture);
+                float full = channelCap > 1 ? Ratio(channelCap) : -1, one = Ratio(1);
+                lines.Add($"Efficiency: {(full > 0 && R(full) != R(one) ? $"{R(Math.Min(one, full))}–{R(Math.Max(one, full))}" : R(one))} {unit} per {resource}"
+                    + (full > 0 ? $" (1–{S(channelCap)}s)" : ""));
             }
             return lines;
         }
@@ -462,11 +463,14 @@ internal static class RuneDescriber
                 else { parts.Add($"{N(spent)} {resource} (needs {N(total)})"); notable = true; }
             }
             float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
-            float cap = _channelled ? ChannelCap(magic?.TimelineData) : 0;
-            foreach (var (resource, amount) in Totals(magic?.ChargingCost))
+            var drains = Totals(magic?.ChargingCost);
+            if (drains.Count > 0)
             {
-                parts.Add($"{Math.Round(amount * perSecond)} {resource}/s{(cap > 0 ? $" for up to {S(cap)}s" : "")}");
-                notable = true;
+                // Channels: "5 Health to cast (needs 25), 48 Health/s to channel" (the hold limit is on the Effect line).
+                for (int i = 0; i < parts.Count; i++)
+                    parts[i] = parts[i].Contains(" (needs ") ? parts[i].Replace(" (needs ", " to cast (needs ") : parts[i] + " to cast";
+                foreach (var (resource, amount) in drains) parts.Add($"{Math.Round(amount * perSecond)} {resource}/s to channel");
+                return (string.Join(", ", parts), true);
             }
             return (parts.Count > 0 ? string.Join(" + ", parts) : null, notable);
         }
@@ -986,6 +990,7 @@ internal static class RuneDescriber
                 string amount = repeat > 0 ? $"{verb} {N(v / repeat)} {unit}/s" : $"{verb} {N(v)} {unit}"; // repeat = seconds per tick
                 _heals.Add(amount + who);
                 _healsDetailed.Add(amount + (allies && reach >= 1 ? $" to you and allies within {N(reach)}m" : who));
+                if (repeat > 0) { _tickAmount = v; _tickEvery = repeat; }
                 if (unit == "HP") { if (repeat > 0) _healPerSecond += v / repeat; else _healInstant += v; }
                 else if (repeat > 0) { _restorePerSecond += v / repeat; _restoreUnit = unit; }
             }
