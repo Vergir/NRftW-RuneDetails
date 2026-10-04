@@ -224,33 +224,35 @@ def gallery():
 
 
 def collage(out, shots, columns, caption):
-    """Many tooltips as they look in game: each panel at its own pixels, packed into the shortest column, on the
-    blurred scene; one caption. shots = [(file, rough panel box)]."""
+    """Many tooltips as they look in game, each panel at its own pixels in a grid (rows top-aligned), centred on the
+    blurred scene in a 16:9 frame; one caption. shots = [(file, rough panel box)]."""
     crops = [brighten(frame(n).crop(panel(n, approx))) for n, approx in shots]
-    gap, m, cap = 36, 48, 96
+    gap, m, cap = 36, 48, 110
     cw = max(c.width for c in crops)
-    heights = [0] * columns
-    places = []
-    for c in crops:
-        i = heights.index(min(heights))
-        places.append((m + i * (cw + gap), m + cap + heights[i]))
-        heights[i] += c.height + gap
-    size = (m * 2 + columns * cw + (columns - 1) * gap, m * 2 + cap + max(heights) - gap)
-    bg = frame("08_scene").resize(size, Image.LANCZOS).filter(ImageFilter.GaussianBlur(6))
+    rows = [crops[i:i + columns] for i in range(0, len(crops), columns)]
+    rh = [max(c.height for c in r) for r in rows]
+    cwid, chgt = columns * cw + (columns - 1) * gap, cap + sum(rh) + gap * (len(rows) - 1)
+    w = max(cwid + 2 * m, round((chgt + 2 * m) * 16 / 9))
+    h = round(w * 9 / 16)
+    x0, y0 = (w - cwid) // 2, (h - chgt) // 2
+    bg = frame("08_scene").resize((w, h), Image.LANCZOS).filter(ImageFilter.GaussianBlur(6))
     img = ImageEnhance.Brightness(bg).enhance(0.75).convert("RGBA")
-    for c, xy in zip(crops, places):
-        shadowed_paste(img, c.convert("RGBA"), xy)
-    label(img, caption, (m + 16, m + cap // 2 - 6), 72, anchor="lm")
+    y = y0 + cap
+    for r, height in zip(rows, rh):
+        for i, c in enumerate(r):
+            shadowed_paste(img, c.convert("RGBA"), (x0 + i * (cw + gap), y))
+        y += height + gap
+    label(img, caption, (x0 + 16, y0 + cap // 2 - 10), 72, anchor="lm")
     save(img, out)
 
 
 # Collage tooltips: the top and bottom of each tooltip in the raw file (bars included, read off a preview), for panel().
 COLLAGE_BRIEF = {"02_inv_brief": (416, 944), "b_crushing_flurry": (334, 902), "b_heal_aura": (312, 880),
-                 "b_arrowstorm": (334, 902), "b_frost_stream": (356, 882), "b_plague_column": (350, 876),
-                 "b_lightning_leap": (364, 932), "b_blink": (384, 910), "b_spin_strike": (380, 906)}
-COLLAGE_DETAILED = {"d_lightning_leap": (346, 1102), "d_heal_aura": (364, 958), "d_arrowstorm": (358, 952),
-                    "d_frost_stream": (330, 840), "d_plague_column": (334, 844), "05_vendor": (295, 864),
-                    "d_blink": (368, 918), "d_spin_strike": (320, 912), "d_crushing_flurry": (342, 1018)}
+                 "b_arrowstorm": (334, 902), "b_lightning_leap": (364, 932), "b_frost_stream": (356, 882),
+                 "b_plague_column": (350, 876), "b_blink": (384, 910)}
+COLLAGE_DETAILED = {"d_lightning_leap": (346, 1102), "d_crushing_flurry": (342, 1018), "d_heal_aura": (364, 958),
+                    "d_arrowstorm": (358, 952), "05_vendor": (295, 864), "d_blink": (368, 918),
+                    "d_frost_stream": (330, 840), "d_plague_column": (334, 844)}
 
 
 def collage_shots(spec):
@@ -276,7 +278,7 @@ def thumbs(img):
 if __name__ == "__main__":
     tile = main_image()
     gallery()
-    collage("2_collage_detailed.jpg", collage_shots(COLLAGE_DETAILED), 3, "Detailed")
-    collage("3_collage_brief.jpg", collage_shots(COLLAGE_BRIEF), 3, "Brief")
+    collage("2_collage_detailed.jpg", collage_shots(COLLAGE_DETAILED), 4, "Detailed")
+    collage("3_collage_brief.jpg", collage_shots(COLLAGE_BRIEF), 4, "Brief")
     if "--thumbs" in sys.argv:
         thumbs(tile)
