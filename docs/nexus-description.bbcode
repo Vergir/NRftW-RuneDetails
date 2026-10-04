@@ -1,0 +1,75 @@
+[size=5][b]Rune Details[/b][/size]
+
+See what every rune really does, right in its tooltip: damage as a multiple of your weapon's, heals, buffs, costs and timings.
+Nothing is changed, only shown.
+
+[img]{{HERO: hero.jpg, Vanilla | Brief | Detailed of the same rune tooltip}}[/img]
+
+[size=4][b]Features[/b][/size]
+[list]
+[*][b]Brief[/b] (default): one grey note at the end of the rune text, e.g. [i](3 hits × 150–200% weapon dmg)[/i], [i](Heals 40 HP)[/i], [i](70% weapon dmg + 30% of base enemy HP)[/i].[/*]
+[*][b]Detailed[/b]: lines for cost, damage, poise, knockback, cast time, lockout, invulnerability, hyper armor and efficiency.[/*]
+[*][b]Every screen with runes[/b]: tooltips, vendors, utility slots, the Runes menu; type and cost where the game omits them.[/*]
+[*][b]Live numbers[/b]: kick damage follows your weapon's level, a few runes your character level.[/*]
+[/list]
+Off, Brief or Detailed: one setting at the end of [i]Options > Gameplay[/i].
+
+[img]{{SECOND: screens.jpg, Runes menu + vendor + utility slot crops}}[/img]
+
+[size=4][b]What it does not do[/b][/size]
+[list]
+[*]It does not change runes, costs or damage; it reads the game data and shows it.[/*]
+[*]Charged spells and bow shots show no timings yet.[/*]
+[/list]
+
+[size=4][b]Requirements[/b][/size]
+[list]
+[*][url=https://github.com/LavaGang/MelonLoader/releases]MelonLoader[/url] 0.7.3 or newer.[/*]
+[/list]
+
+[size=4][b]Installation[/b][/size]
+[list=1]
+[*]Install MelonLoader into the game folder and start the game once.[/*]
+[*]Extract the mod's zip into the game folder, so that [i]RuneDetails.dll[/i] ends up in the [i]Mods[/i] folder.[/*]
+[/list]
+[b]Steam Deck / Linux (Proton):[/b]
+[list=1]
+[*]Copy the files from MelonLoader's [i]MelonLoader.x64.zip[/i] (the Windows build) into the game folder, and the mod into [i]Mods[/i].[/*]
+[*]In Steam, open the game's Properties > General > Launch Options and enter:
+[code]WINEDLLOVERRIDES="version=n,b" %command%[/code][/*]
+[*]Start the game. On the first start MelonLoader installs the .NET runtime it needs by itself; that start takes a minute or two.[/*]
+[/list]
+[b]Uninstall:[/b] delete [i]Mods\RuneDetails.dll[/i]. Your settings stay in [i]UserData\MelonPreferences.cfg[/i]; delete the [RuneDetails] section if you want them gone too. Nothing in the save was changed, so nothing needs cleaning up.
+
+[size=4][b]Compatibility[/b][/size]
+[list]
+[*][b]Game version:[/b] made for No Rest for the Wicked "The Breach", tested with build 29466 and MelonLoader 0.7.3 on Windows. Last checked: 2026-10-04.[/*]
+[*][b]After a game update:[/b] the numbers are read live from the game data, so balance patches need no mod update; if a UI change hides the note, it is missing, not wrong.[/*]
+[*][b]Co-op and saves:[/b] Display only: nothing in the game simulation or your save is changed, so it does not affect co-op.[/*]
+[*][b]Other mods:[/b] works next to [url=https://www.nexusmods.com/norestforthewicked/mods/106]Enchantment Details[/url] (it covers enchantments, this covers runes). No known conflicts.[/*]
+[*][b]Language:[/b] the game's text stays in your language; the words the mod adds are English.[/*]
+[/list]
+
+[size=4][b]Settings[/b][/size]
+At the end of [i]Options > Gameplay[/i]:
+[list]
+[*][b]Rune Details[/b] (Off / Brief / Detailed, default Brief): how much the rune text gains.[/*]
+[/list]
+The same setting is in [i]UserData\MelonPreferences.cfg[/i], section [RuneDetails], plus the brief note's format and a master switch.
+
+[size=4][b]Good to know[/b][/size]
+[list]
+[*][b]WPN[/b]: your weapon's damage; rune hits also take its element unless the rune has its own.[/*]
+[*][b]Base enemy HP[/b]: the health of a normal enemy of the target's level (70 at level 1, 360 at 21, 950 at 30), before elite, boss and co-op multipliers, so a boss takes the same.[/*]
+[*][b]Lockout[/b]: when you can dodge out; [i]combo[/i] is the longer time after normal attacks.[/*]
+[*][b]Friendly fire:[/b] in co-op any hit can damage a partner (reduced, never lethal); areas say whether they do.[/*]
+[/list]
+
+[size=4][b]Source and support[/b][/size]
+Source code, changelog and issue tracker: [url=https://github.com/vergir/NRftW-RuneDetails]GitHub[/url] · License: MIT
+Problems: the [b]Bugs[/b] tab here or a GitHub issue; please include the [i]MelonLoader\Latest.log[/i] file and the game build (shown in the main menu's corner). A number that looks wrong: a screenshot of the tooltip and the rune's name is enough.
+
+
+[color=#999999]=============================== NEXUS "SUMMARY" FIELD ===============================
+See what each rune really does: damage, heals, costs and timings in its tooltip.
+=====================================================================================[/color]

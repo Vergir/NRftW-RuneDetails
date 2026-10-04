@@ -1,66 +1,67 @@
 # Rune Details
 
-MelonLoader mod for No Rest for the Wicked: appends what a rune really does to its tooltip, e.g. `Heals 40 HP`,
-`up to 350% weapon dmg/s for 4s`, `70% weapon dmg + 30% of base enemy HP`. Display only; the Quantum simulation is
-untouched. Sibling of Enchantment Details (enchantments, gems, facets).
+A [MelonLoader](https://github.com/LavaGang/MelonLoader) mod for **No Rest for the Wicked** that shows what every rune
+really does: its damage as a multiple of your weapon's, heals, buffs, costs and timings, right in the rune's tooltip.
+Nothing is changed, only shown.
 
-## How it works
+Download: [Nexus Mods](https://www.nexusmods.com/norestforthewicked/mods/) · [GitHub releases](https://github.com/vergir/NRftW-RuneDetails/releases/latest)
 
-Rune texts are fixed strings without numbers (`HeroItemDataAsset.GetDescription()`, no packets). A postfix on that
-parameterless method appends what the rune's `HeroRuneData.Actions[0]` really does, walked at runtime with the game's
-context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_extract.py`):
+## Features
 
-| Rune kind | Shown |
-|---|---|
-| instant heal / restore | `Heals 40 HP`, `Restores 25 Durability` |
-| channelled aura | `Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s` (the game shows and requires 25 Focus but takes only 5) |
-| self buff | `+20% Overall Damage Dealt for 120s`, or `lasts 60s` for infusions |
-| melee rune attack | `350% weapon dmg`, `4 hits × 100% weapon dmg`, `3 hits × 150–200% weapon dmg` (per hit, no totals) |
-| projectiles / spells | `130/150/200% weapon dmg by charge`, `320–800% weapon dmg by charge`, `1100% weapon dmg in 6m`, `3–10 shots × 80% weapon dmg` (ammo fired) |
-| damage over time | `up to 350% weapon dmg/s for 4s` (repeating area, shared damage id: max one hit per second per enemy while inside), `270% weapon dmg every 1.5s for 5s` (repeat ≥ 1s); beams `120% weapon dmg/s; drains 20 Focus/s while channelling` (unique ids, every 1/60-rounded tick hits); no rate without a duration or channel |
-| throws | `70% weapon dmg + 30% of base enemy HP` (Throw Axe), `100% weapon dmg + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
-| waves and traps | `200% weapon dmg + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
-| no damage | `knockdown, no damage` (Scream) |
-| kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `~161 dmg, scales with weapon's level` with a weapon drawn; `≈153 dmg, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base dmg, …` outside a game |
+* **Brief** (the default): one grey note at the end of the rune text.
+  * `(3 hits × 150–200% weapon dmg)`, `(300% weapon dmg + 200% wave)`, `(10 × 100% weapon dmg in 1.5m)`
+  * `(Heals 40 HP)`, `(Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s)`, `(+20% Overall Damage Dealt for 120s)`
+  * `(70% weapon dmg + 30% of base enemy HP)`, `(~161 dmg, scales with weapon's level)`, `(Teleports 4m)`
+* **Detailed**: separate lines under the rune text.
+  * `Cost: 25 Focus to cast, 32 Focus/s to channel`
+  * `DMG: 300% WPN + 300% WPN in 2.5m (hits allies), Fire`
+  * `Poise DMG: (WPN + 10) × 0.8 per hit · Knockback: ×0.5`
+  * `Cast Time: 0.5s · Lockout: 2.2s (combo: 2.3s)`, `Invulnerable: 0–0.73s`, `+10 Poise while casting`
+  * `Efficiency: 4.8% WPN DMG per Focus`
+* **Every screen that shows runes:** item tooltips, vendors, utility slots and the Runes menu. Where the game shows no
+  rune type or cost (vendors, the Runes menu), Detailed adds them first.
+* **Live numbers:** kick damage follows your weapon's item level, and a few runes follow your character level.
 
-Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). Item and
-utility-slot tooltips get the details appended in-line; the Runes menu shows only the effect's first sentence (it
-splits the text on ". "), so there the details are added after the game has cut the text (`RuneScreen.SetRuneNameText` postfix).
-Details: empty charge curves count as ×1 and real ones are sampled over the spell's Min..MaxCharge; `DamageBalanceData`
-arrays are read from native memory (0x58-byte stride; the interop struct is smaller); repeats follow
-`analysis/cascade_rehit.md`: without `UniqueDamageId` a repeating area hits one enemy at most once per second (damage-id
-dedupe, 60 frames), with it every tick hits; tick times are rounded up to 1/60 s frames (0.15s -> 0.17s).
+Choose **Off**, **Brief** or **Detailed** at the end of **Options > Gameplay** (*Rune Details*).
 
-Kicks: their `DamageConfig.CustomDamageProvider` is `ExpectedWeaponDamageAmountProviderNode`; `ResolveOverlapResult`
-(@0x05B8C659) adds its amount to BaseDamage and sets `DamageFlags.IgnoreEntityBaseDamage`, so the hit is
-multiplier × `StatsSystem.ExpectedStats.GetExpectedWeaponDamage(frame, hero)` = 2 × (1 + 5.8 × (weaponItemLevel − 1) / 29)
-(`BalanceConfigData.Weapon.CoreStatScaling[Damage]`). The weapon's Damage stat, facets, attributes and upgrades don't
-apply. Verified in game 2026-09-28: Swipe Kick 88 vs 32 for a 60-Damage item-level-9 spear (161 / 60 = 2.7x).
-The live value comes from the local `HeroView` (`IsLocalPlayer`: `EntityRef` + `VerifiedFrame`), no hook. In town the
-game reports no mainhand (weapons put away) and its own function would fall back to character level (1760 for Frontflip
-Kick at level 19), so the mod then evaluates `ItemStatsSystem.GetExpectedWeaponDamage(ctx, itemLevel)` for the items in
-`EquipmentSlot.RightHand1..3` and shows their mean.
+## Good to know
 
-Research: `analysis/rune_numbers.md` in the workspace root; internals in `docs/internal.md`.
+* **WPN** is your weapon's damage. Rune hits take your weapon's damage and element, unless the rune has its own element.
+* **Base enemy HP** (throws, Drone Trap, Plague Column): the health a normal enemy of the target's level has (70 at
+  level 1, 160 at 11, 360 at 21, 950 at 30), before elite, boss and co-op multipliers. The hit is the same against a
+  boss as against a normal enemy of that level.
+* **Lockout:** when you can dodge out of the rune. After normal attacks the rune counts as a combo finisher and locks
+  you in longer: the *combo* time.
+* **Friendly fire:** in co-op every hit can damage a partner (heavily reduced, never lethal). Area damage says whether
+  it hits allies.
+* Times assume attack speed 1. The numbers are read from the game data when the tooltip is drawn, so they follow
+  balance patches.
 
-### Self-test
+## Installation
 
-Put `name guid` lines (from `analysis/rune_inventory.csv`) in `UserData/RuneDetails.selftest.txt`; on load the mod
-writes every rune's text to `RuneDetails.selftest.out.txt` once the asset database is ready (first scene load; the first
-line counts runes without details). Last run 2026-09-29: 262 runes, 10 blank (movement and minion runes, Plague Column),
-none odd. Delete both files afterwards.
+1. Install [MelonLoader](https://github.com/LavaGang/MelonLoader/releases) 0.7.3 or newer and start the game once.
+2. Extract `RuneDetails.zip` into the game folder, so that `RuneDetails.dll` ends up in the `Mods` folder.
 
-## Preferences (`UserData/MelonPreferences.cfg`, `[RuneDetails]`)
+Uninstall: delete `Mods\RuneDetails.dll`. The settings stay in `UserData\MelonPreferences.cfg` under `[RuneDetails]`.
+
+## Settings
+
+`UserData\MelonPreferences.cfg`, section `[RuneDetails]`:
 
 | Key | Default | |
 |---|---|---|
 | `Enabled` | `true` | Master switch. |
-| `Mode` | `Brief` | `Off`, `Brief` or `Detailed`. In game: Options > Gameplay > **Rune Details**. |
-| `AddSettingsRows` | `true` | Add that setting to Options > Gameplay (after a divider, rows named `RD_*`). |
-| `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | Appended to the rune text. |
+| `Mode` | `Brief` | `Off`, `Brief` or `Detailed`. Also in Options > Gameplay. |
+| `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | How the brief note is appended. |
+| `AddSettingsRows` | `true` | Add the setting to Options > Gameplay. |
 | `Debug` | `false` | Log every rune's details when first shown. |
 
 ## Build
 
-`dotnet build -c Release` (post-build copies the DLL to `<game>/Mods`, `-p:DeployToGame=false` to skip;
-`-p:GameDir=...` for another install). With HotReload in `<game>/Plugins` the running game picks up new builds.
+`dotnet build -c Release` builds and copies the DLL to `<game>/Mods` (`-p:DeployToGame=false` to skip,
+`-p:GameDir=...` for another install). `pwsh ./package.ps1` builds the release zip into `dist/`. How the numbers are
+found: [docs/internal.md](docs/internal.md); every rune's text in both modes: [docs/rune-tooltips.html](docs/rune-tooltips.html).
+
+## License
+
+MIT, see [LICENSE](LICENSE).

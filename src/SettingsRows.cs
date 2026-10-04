@@ -41,8 +41,8 @@ internal static class SettingsRows
 
         AddSpacer(controls, content);
         AddDropdown(controls, content, RunesId, "Rune Details",
-            "Show what a rune really does. Brief: heal amounts, buffs, damage as a percentage of weapon damage, focus drain "
-                + "while channelling. Detailed: more numbers (Rune Details).",
+            "Show what a rune really does. Brief: one grey line with its damage, heal or buff. Detailed: cost, damage, poise, "
+                + "cast time, lockout, invulnerability and efficiency on separate lines (Rune Details).",
             Prefs.LevelNames, (int)Prefs.Level,
             i => { Prefs.Mode.Value = Prefs.LevelNames[i]; MelonPreferences.Save(); });
         RuneDetailsMod.Log.Msg("Added the Rune Details row to Options > Gameplay");

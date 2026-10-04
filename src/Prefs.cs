@@ -29,8 +29,8 @@ internal static class Prefs
 
         Enabled = _cat.CreateEntry("Enabled", true, description: "Master switch.");
         Mode = _cat.CreateEntry("Mode", "Brief",
-            description: "Off, Brief (one line: heal amounts, buffs, damage as % of weapon damage, channelling drain) or Detailed "
-                + "(more numbers). Also in Options > Gameplay.");
+            description: "Off, Brief (one grey line with the rune's damage, heal or buff) or Detailed (cost, damage, poise, cast "
+                + "time, lockout, invulnerability and efficiency on separate lines). Also in Options > Gameplay.");
         HiddenFormat = _cat.CreateEntry("HiddenFormat", DefaultHiddenFormat,
             description: "Appended to the rune text. {extra} = the details, e.g. \"Heals 40 HP\".");
         AddSettingsRows = _cat.CreateEntry("AddSettingsRows", true,
