@@ -129,11 +129,12 @@ def brief_html(full: str, brief: str | None) -> str:
 
 
 def detailed_html(effect: str, slot: str | None, lines: list[str], brief: str | None, full: str) -> str:
-    """Detailed mode: effect text, the slot in gold, an empty line, the coloured lines (falls back to brief)."""
+    """Detailed mode as a vendor or the Runes menu shows it: effect text, an empty line, the weapon classes in gold,
+    the cost and the other coloured lines (falls back to brief when there are no lines)."""
     if not lines:
         return brief_html(full, brief)
-    top = tmp_html(effect) + (f'<br><span style="color:{GOLD}">{html.escape(slot)}</span>' if slot else "")
-    return top + "<br><br>" + "<br>".join(tmp_html(l) for l in lines)
+    top = f'<span style="color:{GOLD}">{html.escape(slot)}</span><br>' if slot else ""
+    return tmp_html(effect) + "<br><br>" + top + "<br>".join(tmp_html(l) for l in lines)
 
 
 def category(x) -> str:
@@ -216,7 +217,8 @@ def main():
         f"<code>tools/rune_table.py</code> from the mod's in-game self-test (game build 29466, {len(inventory)} rune "
         f"assets; {html.escape(header[0]) if header else ''}) and the English rune texts in "
         f"<code>analysis/rune_inventory.csv</code>. The cost under each name is what the game's tooltip shows "
-        f"(cost + additional cost).</p></header>",
+        f"(cost + additional cost). Detailed is shown as a vendor or the Runes menu shows it; the inventory tooltip "
+        f"leaves out the weapon type and a plain cost (the game shows both there).</p></header>",
         "<nav>" + "".join(f'<a href="#{anchor(k)}">{html.escape(t)}</a>' for k, t, _ in SECTIONS if rows[k]) + "</nav>",
     ]
     for key, title, blurb in SECTIONS:
@@ -246,7 +248,7 @@ def main():
                         f'<td><div class="tip">{brief_html(full, brief)}</div></td>'
                         f'<td><div class="tip">{detailed_html(effect, slot, lines, brief, full)}</div></td></tr>')
         table = ('<table><colgroup><col class="rune"><col class="mode"><col class="mode"></colgroup>'
-                 "<thead><tr><th>Rune</th><th>Brief</th><th>Detailed</th></tr></thead><tbody>"
+                 "<thead><tr><th>Rune</th><th>Brief</th><th>Detailed (vendor / Runes menu)</th></tr></thead><tbody>"
                  + "".join(body) + "</tbody></table>")
         foot = ('<div class="notes">' + "".join(f"<p>[{i + 1}] {html.escape(n)}</p>" for i, n in enumerate(notes)) + "</div>"
                 if notes else "")

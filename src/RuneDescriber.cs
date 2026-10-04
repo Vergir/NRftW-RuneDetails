@@ -21,7 +21,10 @@ internal static class RuneDescriber
 {
     private const float One = 65536f;
     /// <summary>What the mod says about one rune: the brief one-liner and the detailed mode's labelled lines.</summary>
-    internal sealed record RuneText(string? Brief, IReadOnlyList<string> Lines)
+    /// <summary>What the mod says about one rune: the brief one-liner, the detailed mode's labelled lines, and the
+    /// cost as the detailed mode words it ("5 Focus (needs 25) + 32 Focus/s for up to 5s"). CostNotable: the cost says
+    /// more than the game's own cost row (a drain, or a shown cost that is not all paid).</summary>
+    internal sealed record RuneText(string? Brief, IReadOnlyList<string> Lines, string? Cost = null, bool CostNotable = false)
     {
         public static readonly RuneText None = new(null, Array.Empty<string>());
     }
@@ -49,7 +52,7 @@ internal static class RuneDescriber
     }
 
     private static RuneText Live(RuneText t) =>
-        new(t.Brief == null ? null : ResolveLive(t.Brief), t.Lines.Select(ResolveLive).ToList());
+        t with { Brief = t.Brief == null ? null : ResolveLive(t.Brief, false), Lines = t.Lines.Select(l => ResolveLive(l, true)).ToList() };
 
     private static RuneText Describe(HeroRuneData? rune)
     {
@@ -76,7 +79,8 @@ internal static class RuneDescriber
             {
                 var texts = Live(Describe(Resolve<HeroRuneData>(new AssetGuid { Value = guid })));
                 string brief = texts.Brief ?? "(none)";
-                text = texts.Lines.Count == 0 ? brief : $"{brief} ‖ {string.Join(" ¦ ", RuneLayout.ColourLines(texts))}";
+                // Detailed as the vendor and the Runes menu show it (cost line first); see RuneLayout.ColourLines.
+                text = texts.Lines.Count == 0 ? brief : $"{brief} ‖ {string.Join(" ¦ ", RuneLayout.ColourLines(texts, withCost: true))}";
             }
             catch (Exception e) { text = "ERROR " + e.Message; }
             output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
@@ -96,7 +100,7 @@ internal static class RuneDescriber
     /// <summary>Replace level-damage tokens with the live number for the local hero's equipped weapon
     /// (StatsSystem.ExpectedStats.GetExpectedWeaponDamage = 2 x (1 + 5.8 x (itemLevel-1)/29) in build 29466),
     /// or a generic text outside a game.</summary>
-    private static string ResolveLive(string text)
+    private static string ResolveLive(string text, bool detailed)
     {
         if (text.IndexOf(Tok) < 0) return text;
         var expected = LiveExpectedWeaponDamage();
@@ -106,8 +110,9 @@ internal static class RuneDescriber
         {
             if (i % 2 == 0) { sb.Append(parts[i]); continue; }
             float mult = float.Parse(parts[i], CultureInfo.InvariantCulture);
-            string amount = expected is { } e ? $"≈{Math.Round(mult * e)} dmg" : $"{Pct(mult)} base dmg";
-            sb.Append(amount + ", grows with weapon LVL, not weapon DMG");
+            // Brief "≈161 dmg, scales with weapon's level"; detailed "DMG: ≈161 (scales with weapon's level)".
+            string amount = expected is { } e ? $"≈{Math.Round(mult * e)}" + (detailed ? "" : " dmg") : $"{Pct(mult)} base dmg";
+            sb.Append(amount + (detailed ? " (scales with weapon's level)" : ", scales with weapon's level"));
         }
         return sb.ToString();
     }
@@ -213,14 +218,15 @@ internal static class RuneDescriber
     private sealed class Walker
     {
         private readonly List<string> _heals = new(), _buffs = new(), _costs = new();
-        /// <summary>Facts for a future detailed mode only (not shown in the brief text), e.g. "needs 25 Focus, spends 5".</summary>
-        private readonly List<string> _details = new();
         private readonly List<Dmg> _damage = new();
         private readonly HashSet<long> _seen = new();
         // Detailed-mode facts.
         private readonly HashSet<DamageSchool> _schools = new();
         private readonly List<string> _healsDetailed = new();
         private bool _knockdown, _melee;
+        private int _meleeHits;
+        private readonly List<string> _notes = new(); // detailed-only extra lines, e.g. "Mine: …"
+        private const string KnockdownOnly = "knockdown, no damage";
         private float _restorePerSecond;
         private string? _restoreUnit;
         private float _firstHit = float.MaxValue;
@@ -286,14 +292,15 @@ internal static class RuneDescriber
                     foreach (var c in magic.Cascades) Cascade(c, null);
                 ChargingCost(magic);
             }
-            UnpaidCost(action);
 
             // Brief: what it does, then what the channel costs to keep it up: "Heals 30 HP/s to you and allies for
             // 32 Focus/s, up to 5s". A drain with nothing before it (Rejuvenate) stands alone.
             var parts = _heals.Concat(_buffs).Append(DamageText(" weapon dmg")).OfType<string>().Distinct().ToList();
             string text = string.Join("; ", parts);
             if (_costs.Count > 0) text = parts.Count > 0 ? $"{text} for {string.Join(" + ", _costs)}" : "drains " + string.Join(" + ", _costs);
-            return new RuneText(text.Length > 0 ? text : null, DetailedLines(action, magic));
+            var lines = DetailedLines(action, magic);
+            var (costText, notable) = CostText(action, magic);
+            return new RuneText(text.Length > 0 ? text : null, lines, costText, notable);
         }
 
         private string? DamageText(string weaponWord)
@@ -325,22 +332,16 @@ internal static class RuneDescriber
             // Damage, in the weapon-damage shorthand; an element only when the rune sets its own (Physical runes hit
             // with the weapon's element: DamageAPI.GetDamageSchool keeps an elemental school, else the weapon's).
             string? damage = DamageText(" WPN");
+            if (damage == KnockdownOnly) damage = null; // the detailed mode says "Knockdown" on its own line
             if (damage != null)
             {
                 var own = _schools.Where(SchoolNames.ContainsKey).Select(x => SchoolNames[x]).Distinct().ToList();
-                lines.Add("Damage: " + damage + (own.Count > 0 ? ", " + string.Join("/", own) : ""));
+                lines.Add("DMG: " + damage + (own.Count > 0 ? ", " + string.Join("/", own) : ""));
             }
             var effects = _healsDetailed.Concat(_buffs).Distinct().ToList();
             if (effects.Count > 0) lines.Add("Effect: " + string.Join("; ", effects));
 
-            // Cost: the channel's drain and Cost vs shown cost.
-            var cost = new List<string>();
             float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
-            float cap = _channelled ? ChannelCap(tl) : 0;
-            foreach (var (resource, amount) in Totals(magic?.ChargingCost))
-                cost.Add($"{Math.Round(amount * perSecond)} {resource}/s{(cap > 0 ? $" for up to {S(cap)}s" : "")}");
-            cost.AddRange(_details);
-            if (cost.Count > 0) lines.Add("Cost: " + string.Join(" · ", cost));
 
             // Hit: poise and knockback as formulas on the weapon's own values, "Poise: (WPN + 10) × 0.8",
             // "Knockback: ×2" (melee only: for projectiles and areas the action's values are one layer of several).
@@ -352,15 +353,16 @@ internal static class RuneDescriber
                 bool hasOffset = Math.Abs(offset) >= 0.5f, hasFactor = Math.Abs(factor - 1) >= 0.005f;
                 string plus = hasOffset ? $"WPN {(offset > 0 ? "+" : "−")} {N(Math.Abs(offset))}" : "WPN";
                 if (hasOffset || hasFactor)
-                    hit.Add("Poise: " + (hasFactor ? $"{(hasOffset ? $"({plus})" : plus)} × {N(factor)}" : plus));
+                    hit.Add("Poise DMG: " + (hasFactor ? $"{(hasOffset ? $"({plus})" : plus)} × {N(factor)}" : plus) + (_meleeHits > 1 ? " per hit" : ""));
                 float kick = F(_base.KickbackMulti);
-                if (_knockdown || _base.KnockDown) hit.Add("Knockback: knockdown");
+                if (_knockdown || _base.KnockDown) hit.Add("Knockdown");
                 // Against the standard push, not the weapon's: a fixed curve x the hit's KickbackMulti x the target's
                 // own multiplier (HitReactionResolverSystem.GetKickbackMulti @0x5C32C40). Normal attacks: 0.25-1.5.
                 else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: ×{N(kick)}");
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
-            else if (damage != null && _knockdown) lines.Add("Knockback: knockdown");
+            else if (_knockdown) lines.Add("Knockdown");
+            lines.AddRange(_notes);
 
             // Timings (first hit, lockout, invulnerable windows) are left out until they are modelled: the timeline's
             // section times did not match the game (2026-10-04: Crushing Flurry and Swipe Kick cannot be dodged out of
@@ -376,8 +378,8 @@ internal static class RuneDescriber
                 var known = _damage.Distinct().ToList();
                 // Only when every part is a known multiple of weapon damage (no rates, ranges or % of enemy HP).
                 if (known.Count > 0 && known.All(d => d.Weapon && d.Total > 0 && !d.Tail.Contains("enemy HP")) && spent > 0)
-                    lines.Add($"Efficiency: {N(known.Sum(d => d.Total) / spent * 100)}% WPN per {resource}");
-                else if (_healInstant > 0 && spent > 0 && known.Count == 0)
+                    lines.Add($"Efficiency: {N(known.Sum(d => d.Total) / spent * 100)}% WPN DMG per {resource}");
+                else if (_healInstant > 0 && spent > 0 && known.Count == 0 && _buffs.Count == 0) // a buff is part of the price
                     lines.Add($"Efficiency: {N(_healInstant / spent)} HP per {resource}");
             }
             if (_healPerSecond > 0 && perSecond > 0 && magic?.ChargingCost != null)
@@ -395,6 +397,36 @@ internal static class RuneDescriber
                 }
             }
             return lines;
+        }
+
+        /// <summary>"100 Focus", or "5 Focus (needs 25)" when the shown cost is not all paid, plus the drain "+ 32 Focus/s
+        /// for up to 5s". Notable when it says more than the game's cost row. The game shows Cost + AdditionalCost and
+        /// requires both to start (ActionData.CanAffordAction @0x5A1B1B0) but pays only Cost at the press
+        /// (ActionData.Execute @0x5B84AC0); AdditionalCost is paid when an ApplyAdditionalCost (43) timeline section
+        /// activates (ActionData.Update @0x5B84F60). Heal Aura, Channel, Frost Stream and Inferno have none.</summary>
+        private (string? Text, bool Notable) CostText(ActionData action, ChargedMagicActionData? magic)
+        {
+            var shown = Totals(action.Cost);
+            foreach (var (r, a) in Totals(action.AdditionalCost)) shown[r] = shown.TryGetValue(r, out float v) ? v + a : a;
+            var paid = Totals(action.Cost);
+            if (HasAdditionalCostSection(action))
+                foreach (var (r, a) in Totals(action.AdditionalCost)) paid[r] = paid.TryGetValue(r, out float v) ? v + a : a;
+            var parts = new List<string>();
+            bool notable = false;
+            foreach (var (resource, total) in shown)
+            {
+                paid.TryGetValue(resource, out float spent);
+                if (Math.Abs(spent - total) < 0.01f) parts.Add($"{N(total)} {resource}");
+                else { parts.Add($"{N(spent)} {resource} (needs {N(total)})"); notable = true; }
+            }
+            float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
+            float cap = _channelled ? ChannelCap(magic?.TimelineData) : 0;
+            foreach (var (resource, amount) in Totals(magic?.ChargingCost))
+            {
+                parts.Add($"{Math.Round(amount * perSecond)} {resource}/s{(cap > 0 ? $" for up to {S(cap)}s" : "")}");
+                notable = true;
+            }
+            return (parts.Count > 0 ? string.Join(" + ", parts) : null, notable);
         }
 
         private static bool HasAdditionalCostSection(ActionData action)
@@ -427,6 +459,7 @@ internal static class RuneDescriber
                 _knockdown |= strike.KnockDown;
                 _firstHit = Math.Min(_firstHit, F(c.StartTime));
                 _melee = true;
+                _meleeHits++;
             }
             if (mults.Count == 0) return;
             if (_levelDamage)
@@ -549,17 +582,20 @@ internal static class RuneDescriber
             var strikes = DamageArray(p.StrikeDamageData);
             string? health = ExpectedHealthDamage(p.Payloads);
             var expl = DamageArray(p.ExplosionDamageData);
-            bool explodes = expl.Length > 0 && (p.ExplodeOnExpiration || (int)p.ExplodeOnHit != 0);
+            // An explosion with radius 0 hits nothing (Regurgitate's +50%): OnCollisionWithDamageReceiver explodes only
+            // with ExplodeOnHit and ExplosionRadius > 0.
+            float blast = F(p.ExplosionRadius);
+            bool explodes = expl.Length > 0 && blast > 0 && (p.ExplodeOnExpiration || (int)p.ExplodeOnHit != 0);
+            string mine = Mine(p);
             if (strikes.Length == 0)
             {
                 // Explosion only (Arrowstorm's falling arrows burst on the ground in 1.5m).
                 if (explodes)
                 {
-                    float r = F(p.ExplosionRadius);
                     float boom = Mult(expl[expl.Length - 1]);
-                    return new Dmg(Pct(boom), Tail: (r >= 1 ? $" in {N(r)}m" : "") + (health == null ? "" : " + " + health), Total: boom);
+                    return new Dmg(Pct(boom), Tail: (blast >= 1 ? $" in {N(blast)}m" : "") + (health == null ? "" : " + " + health) + mine, Total: boom);
                 }
-                return health == null ? null : new Dmg(health, Weapon: false);
+                return health == null ? null : new Dmg(health + mine, Weapon: false);
             }
             var mults = strikes.Select(Mult).ToList();
             string pct, tail = "";
@@ -570,11 +606,27 @@ internal static class RuneDescriber
             if (explodes)
             {
                 float boom = Mult(expl[expl.Length - 1]);
-                tail += $" + {Pct(boom)} explosion";
+                tail += $" + {Pct(boom)} in {N(blast)}m";
                 if (total > 0) total += boom;
             }
             if (health != null) tail += " + " + health;
-            return new Dmg(pct, Tail: tail, Total: total);
+            return new Dmg(pct, Tail: tail + mine, Total: total);
+        }
+
+        /// <summary>A projectile that leaves a mine where it stops (Drone Trap: ProjectileData.OnStopInstantiation ->
+        /// ExplosiveTrapData, one blast of 25% of base enemy HP in 2.5m when an enemy comes near, waits up to 240s,
+        /// AllowFriendlyFire). Returns the brief tail; the detailed mode gets a "Mine:" line.</summary>
+        private string Mine(ProjectileData p)
+        {
+            var trap = Resolve<ExplosiveTrapData>(p.OnStopInstantiation.Id);
+            if (trap == null) return "";
+            string? health = ExpectedHealthDamage(trap.PayloadData);
+            float r = F(trap.ExplosionRadius), life = F(trap.MaxTimeActive);
+            var facts = new List<string>();
+            if (life > 0) facts.Add($"waits up to {S(life)}s");
+            if (trap.AllowFriendlyFire) facts.Add("also hits allies");
+            if (facts.Count > 0) _notes.Add("Mine: " + string.Join(", ", facts));
+            return health == null ? "" : $" + {health.Replace(" of base enemy HP", "")} mine{(r >= 1 ? $" in {N(r)}m" : "")}";
         }
 
         /// <summary>DamagePayloads whose amount is ExpectedHealthAmountProvider: a fraction of the TARGET's expected
@@ -659,7 +711,11 @@ internal static class RuneDescriber
                     }
                     if (m * hi < 0.005f)
                     {
-                        if (s.Damage.Damage.KnockDown || _base.KnockDown) _damage.Add(new Dmg("knockdown, no damage", Weapon: false));
+                        if (s.Damage.Damage.KnockDown || _base.KnockDown)
+                        {
+                            _damage.Add(new Dmg(KnockdownOnly, Weapon: false)); // Scream
+                            _knockdown = true;
+                        }
                         break;
                     }
                     bool byCharge = Pct(m * lo) != Pct(m * hi);
@@ -856,26 +912,6 @@ internal static class RuneDescriber
                 if (released && timed) return F(infos[i].End) - (i > 0 && infos[i - 1] != null ? F(infos[i - 1].End) : 0);
             }
             return 0;
-        }
-
-        /// <summary>The game shows Cost + AdditionalCost and requires both to start (ActionData.CanAffordAction
-        /// @0x5A1B1B0), but pays only Cost at the press (ActionData.Execute @0x5B84AC0); AdditionalCost is paid when an
-        /// ApplyAdditionalCost (43) timeline section activates (ActionData.Update @0x5B84F60). Heal Aura, Channel, Frost
-        /// Stream and Inferno have none: 5 of the shown 25 is spent.</summary>
-        private void UnpaidCost(ActionData action)
-        {
-            var extra = Totals(action.AdditionalCost);
-            if (extra.Count == 0) return;
-            var sections = action.TimelineData?.Sections;
-            if (sections != null)
-                foreach (var sec in sections)
-                    if (sec != null && sec.Id == QuantumActionSectionId.ApplyAdditionalCost) return;
-            var paid = Totals(action.Cost);
-            foreach (var (resource, amount) in extra)
-            {
-                paid.TryGetValue(resource, out float spent);
-                _details.Add($"needs {N(spent + amount)} {resource}, spends {N(spent)}");
-            }
         }
 
         private static Dictionary<string, float> Totals(Il2Cpp.MultiHeroActionCostHelper? helper)

@@ -11,6 +11,9 @@ internal enum RuneView
     Tooltip,
     /// <summary>InventoryItemInfoElement.PopulateRuneData: hovering a utility rune slot. Full text.</summary>
     UtilitySlot,
+    /// <summary>VendorScreenV2.ShowItemInfoForSlot: a rune in a vendor's stock. Full text, but the vendor's tooltip
+    /// shows neither the rune's type nor its cost.</summary>
+    Vendor,
     /// <summary>RuneScreen.SetRuneNameText: a weapon's or the utility rune slots in the Runes menu. Shows only the
     /// second piece of the text split on ". " and "\n" (the effect's first sentence), so anything appended is cut.</summary>
     RuneScreen,
@@ -28,8 +31,10 @@ internal static class RuneViewContext
     public static void Enter(RuneView view) { _view = view; _frame = UnityEngine.Time.frameCount; }
     public static void Exit() => _frame = -1;
 
-    /// <summary>The rune screen's details, captured during SetRuneNameText and appended after its split.</summary>
+    /// <summary>The rune screen's details and the rune's full text (for its weapon classes), captured during
+    /// SetRuneNameText and added after its split.</summary>
     public static RuneDescriber.RuneText? RuneScreenExtra;
+    public static string? RuneScreenDescription;
 }
 
 /// <summary>
@@ -52,9 +57,10 @@ internal static class RuneDescriptionPatch
             {
                 // Leave the text alone: the screen splits it on ". " and would drop the details.
                 RuneViewContext.RuneScreenExtra = text;
+                RuneViewContext.RuneScreenDescription = __result;
                 return;
             }
-            __result = RuneLayout.Tooltip(__result, text, Prefs.Level);
+            __result = RuneLayout.Tooltip(__result, text, Prefs.Level, RuneViewContext.Current);
         }
         catch (System.Exception e)
         {
@@ -70,6 +76,14 @@ internal static class UtilitySlotPatch
     static void Postfix() => RuneViewContext.Exit();
 }
 
+/// <summary>VendorScreenV2.ShowItemInfoForSlot(ItemSlot) (a class parameter, safe to patch) fills the vendor's info pane.</summary>
+[HarmonyPatch(typeof(VendorScreenV2), "ShowItemInfoForSlot")]
+internal static class VendorPatch
+{
+    static void Prefix() => RuneViewContext.Enter(RuneView.Vendor);
+    static void Postfix() => RuneViewContext.Exit();
+}
+
 /// <summary>RuneScreen.SetRuneNameText() (no parameters) fills RuneSlotDescription with the effect's first sentence.
 /// Append the details after it has done so.</summary>
 [HarmonyPatch(typeof(RuneScreen), "SetRuneNameText")]
@@ -78,6 +92,7 @@ internal static class RuneScreenPatch
     static void Prefix()
     {
         RuneViewContext.RuneScreenExtra = null;
+        RuneViewContext.RuneScreenDescription = null;
         RuneViewContext.Enter(RuneView.RuneScreen);
     }
 
@@ -91,7 +106,7 @@ internal static class RuneScreenPatch
         {
             var text = __instance.RuneSlotDescription;
             if (text == null || !text.gameObject.activeInHierarchy || string.IsNullOrEmpty(text.text)) return;
-            text.text = RuneLayout.RuneScreen(text.text, extra, Prefs.Level);
+            text.text = RuneLayout.RuneScreen(text.text, RuneViewContext.RuneScreenDescription, extra, Prefs.Level);
         }
         catch (System.Exception e)
         {
