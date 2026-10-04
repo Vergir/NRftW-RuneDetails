@@ -34,7 +34,7 @@ internal static class Prefs
         HiddenFormat = _cat.CreateEntry("HiddenFormat", DefaultHiddenFormat,
             description: "Appended to the rune text. {extra} = the details, e.g. \"Heals 40 HP\".");
         AddSettingsRows = _cat.CreateEntry("AddSettingsRows", true,
-            description: "Add the Rune Details setting to Options > Gameplay.");
+            description: "Add the Rune Details heading and its Details Display Mode setting to Options > Gameplay.");
         Debug = _cat.CreateEntry("Debug", false,
             description: "Log the details of every rune when first shown (MelonLoader console).");
     }

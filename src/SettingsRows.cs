@@ -17,8 +17,8 @@ internal static class SettingsRows
 {
     public const string Prefix = "RD_";
     private const PlayerSettingCategory Category = PlayerSettingCategory.Gameplay;
-    private const string SpacerId = "RD_Spacer", RunesId = "RD_Runes";
-    private static readonly string[] AllIds = { SpacerId, RunesId };
+    private const string SpacerId = "RD_Spacer", HeadingId = "RD_Heading", RunesId = "RD_Runes";
+    private static readonly string[] AllIds = { SpacerId, HeadingId, RunesId };
 
     private static readonly Dictionary<string, LocalizedMessage> _messages = new Dictionary<string, LocalizedMessage>();
 
@@ -40,7 +40,11 @@ internal static class SettingsRows
         RemoveRegistryEntries(controls);
 
         AddSpacer(controls, content);
-        AddDropdown(controls, content, RunesId, "Rune Details",
+        // A heading row as the game uses between its own groups, so the setting reads as this mod's.
+        int before = content.childCount;
+        controls.AddSeparatorItem(Category, Msg(HeadingId, "Rune Details"));
+        NameNewRow(content, before, HeadingId);
+        AddDropdown(controls, content, RunesId, "Details Display Mode",
             "Show what a rune really does. Brief: one grey line with its damage, heal or buff. Detailed: cost, damage, poise, "
                 + "cast time, lockout, invulnerability and efficiency on separate lines (Rune Details).",
             Prefs.LevelNames, (int)Prefs.Level,
