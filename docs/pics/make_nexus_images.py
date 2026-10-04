@@ -30,15 +30,15 @@ ADDED = {"02_inv_brief": (890, 648, 1540, 700), "03_inv_detailed": (890, 545, 15
 # dimming); the boxes around the mod's lines (fit = tighten to the text, only on the dark tooltip panels); the caption,
 # placed in frame pixels next to the subject.
 GALLERY = [
-    ("2_inventory.jpg", "03_inv_detailed", None, PANEL["03_inv_detailed"], [(ADDED["03_inv_detailed"], True)],
+    ("4_inventory.jpg", "03_inv_detailed", None, PANEL["03_inv_detailed"], [(ADDED["03_inv_detailed"], True)],
      "Inventory", (875, 975), "la"),
-    ("3_runes_menu.jpg", "04_runes_menu", None, (790, 570, 1720, 1240), [((1000, 796, 1690, 1078), False)],
+    ("5_runes_menu.jpg", "04_runes_menu", None, (790, 570, 1720, 1240), [((1000, 796, 1690, 1078), False)],
      "Runes menu", (1008, 1275), "la"),
-    ("4_vendor.jpg", "05_vendor", None, (1253, 269, 1932, 838), [((1270, 520, 1915, 745), True)],
+    ("6_vendor.jpg", "05_vendor", None, (1253, 269, 1932, 838), [((1270, 520, 1915, 745), True)],
      "Vendor", (1253, 880), "la"),
-    ("5_utility.jpg", "06_utility", None, (875, 297, 1555, 891), [((890, 585, 1555, 770), True)],
+    ("7_utility.jpg", "06_utility", None, (875, 297, 1555, 891), [((890, 585, 1555, 770), True)],
      "Utility rune", (875, 932), "la"),
-    ("6_settings.jpg", "07_settings", (130, 206, 2534, 1559), None, [((196, 1132, 1432, 1462), False)],
+    ("8_settings.jpg", "07_settings", (130, 206, 2534, 1559), None, [((196, 1132, 1432, 1462), False)],
      "Options > Gameplay", (2534 - 60, 1559 - 50), "rd"),
 ]
 
@@ -47,7 +47,7 @@ def font(size):
     return ImageFont.truetype(FONT, size)
 
 
-_cache = {}
+_cache, _tops = {}, {}
 
 
 def frame(name):
@@ -56,6 +56,7 @@ def frame(name):
         im = Image.open(os.path.join(HERE, name + ".png")).convert("RGB")
         rows = np.asarray(im.convert("L")).astype(float).mean(axis=1)
         top = int(np.where(rows > 4)[0][0])
+        _tops[name] = top
         _cache[name] = im.crop((0, top, FW, top + FH))
     return _cache[name]
 
@@ -83,8 +84,9 @@ def panel(name, approx, r=25):
     gx, gy = np.abs(np.diff(a, axis=1)), np.abs(np.diff(a, axis=0))
     cols = gx[t + 20:b - 20, :].mean(axis=0)
     rows = gy[:, l + 20:rt - 20].mean(axis=1)
-    l = l - r + int(np.argmax(cols[l - r:l + r])) + 1
-    rt = rt - r + int(np.argmax(cols[rt - r:rt + r])) + 1
+    rx = 8  # tooltips share their x; a wide search catches an inventory icon's edge instead
+    l = l - rx + int(np.argmax(cols[l - rx:l + rx])) + 1
+    rt = rt - rx + int(np.argmax(cols[rt - rx:rt + rx])) + 1
     t = t - r + int(np.argmax(rows[t - r:t + r])) + 1
     band = a[:, l + 6:rt - 6]
     mean, std = band.mean(axis=1), band.std(axis=1)
@@ -242,6 +244,27 @@ def collage(out, shots, columns, caption):
     save(img, out)
 
 
+# Collage tooltips: the top and bottom of each tooltip in the raw file (bars included, read off a preview), for panel().
+COLLAGE_BRIEF = {"02_inv_brief": (416, 944), "b_crushing_flurry": (334, 902), "b_heal_aura": (312, 880),
+                 "b_arrowstorm": (334, 902), "b_frost_stream": (356, 882), "b_plague_column": (350, 876),
+                 "b_lightning_leap": (364, 932), "b_blink": (384, 910), "b_spin_strike": (380, 906)}
+COLLAGE_DETAILED = {"d_lightning_leap": (346, 1102), "d_heal_aura": (364, 958), "d_arrowstorm": (358, 952),
+                    "d_frost_stream": (330, 840), "d_plague_column": (334, 844), "05_vendor": (295, 864),
+                    "d_blink": (368, 918), "d_spin_strike": (320, 912), "d_crushing_flurry": (342, 1018)}
+
+
+def collage_shots(spec):
+    """(file, rough panel box in frame pixels) for collage(); every inventory tooltip sits at the same x."""
+    out = []
+    for n, (t, b) in spec.items():
+        if not os.path.exists(os.path.join(HERE, n + ".png")):
+            continue
+        frame(n)
+        x = (1253, 1932) if n == "05_vendor" else (875, 1555)
+        out.append((n, (x[0], t - _tops[n], x[1], b - _tops[n])))
+    return out
+
+
 def thumbs(img):
     """The listing-tile test (style guide section 7): 300 and 170 px renders next to the outputs."""
     for w, h in ((300, 169), (170, 96)):
@@ -253,5 +276,7 @@ def thumbs(img):
 if __name__ == "__main__":
     tile = main_image()
     gallery()
+    collage("2_collage_detailed.jpg", collage_shots(COLLAGE_DETAILED), 3, "Detailed")
+    collage("3_collage_brief.jpg", collage_shots(COLLAGE_BRIEF), 3, "Brief")
     if "--thumbs" in sys.argv:
         thumbs(tile)

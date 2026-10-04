@@ -462,7 +462,7 @@ internal static class RuneDescriber
                 // Stagger-bar points (bar 100, not x10), GetStaggerDamage @0x5C084F0.
                 if (_staggerHits > 0)
                     hit.Add($"Stagger: {(_stagger > 0 ? "+" : "-")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits}/{_meleeHits} hits"));
-                if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
+                AddJoined(lines, hit);
             }
             else if (_knockdown) lines.Add("Knockdown");
             lines.AddRange(_notes);
@@ -543,6 +543,16 @@ internal static class RuneDescriber
 
         private const float AttackInterruptByAction = 0.18f, AttackInterruptByActionLastInCombo = 0.5f; // heroPlayerControllerData
 
+        /// <summary>Short parts share a line, joined with " · "; when the joined line would not fit the item tooltip
+        /// (about 48 characters), each part gets its own line, so the game never wraps the line after a "·".</summary>
+        private static void AddJoined(List<string> lines, List<string> parts)
+        {
+            if (parts.Count == 0) return;
+            string joined = string.Join(" · ", parts);
+            if (joined.Length <= 48) lines.Add(joined);
+            else lines.AddRange(parts);
+        }
+
         /// <summary>"Cast time: 0.6s · Lockout: 0.87s (0.95s after a combo)" and "Invulnerable: 0–0.73s", in real
         /// seconds at attack speed 1. The action's length is its segments (Startup/Active/Recovery FrameCount at 60/s),
         /// each retimed to N = ceil(max(1, FrameCount + RetimingFrames)) frames (InitializeSegmentPlaybackState
@@ -614,7 +624,7 @@ internal static class RuneDescriber
                         dodge = Math.Min(dodge, F(sec.Start));
                 if (dodge < end) timing.Add($"Lockout: {S(RealTime(dodge))}s");
             }
-            if (timing.Count > 0) lines.Add(string.Join(" · ", timing));
+            AddJoined(lines, timing);
 
             // Invulnerable: the whole action (ActionFlags.MakeInvincible) or sections 7 Invincibility / 47 Immune
             // (TryIgnoreDamage @0x5C0F4F0, GetImmunityFlags @0x5BA3E00).
