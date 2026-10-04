@@ -1101,14 +1101,23 @@ internal static class RuneDescriber
 
         /// <summary>A status that spawns a cascade every Period seconds, or every Period metres walked (Static: a
         /// Lightning strike every 2.5s; Fire Walk: Fire damage around you every 1.1s and a Burn trail every 1.58m).</summary>
+        private const long FireWalkStaticCascade = 3197919993020607137; // fireWalkStaticCascade, see Periodic
+
         private string? Periodic(PeriodicModifier periodic)
         {
             var parts = new List<string>();
             if (periodic.Payload?.Payloads == null) return null;
             foreach (var payload in periodic.Payload.Payloads)
             {
-                var cascade = Resolve<CascadeStaticData>(payload?.TryCast<CascadePayload>()?.Cascade.Id ?? default);
+                var cascadePayload = payload?.TryCast<CascadePayload>();
+                var cascade = Resolve<CascadeStaticData>(cascadePayload?.Cascade.Id ?? default);
                 if (cascade?.Events == null) continue;
+                // Fire Walk's fireWalkStaticCascade (Fire damage in 1.75m every 1.1s around the caster) never happened in
+                // game (2026-10-04: standing next to the dummy did nothing; only the walking trail and its Burn did).
+                if (cascadePayload!.Cascade.Id.Value == FireWalkStaticCascade) continue;
+                // The payload's amount is the strike's damage, a share of the caster's expected damage for their level
+                // (Static: 0.7, measured 127 at level 25 against ~180 expected).
+                var share = cascadePayload?.Amount?.TryCast<ExpectedDamageAmountProvider>()?.ScalingData.Scaling;
                 float r = F(cascade.InstanceRadius);
                 string area = r >= 1 ? $" in {N(r)}m" : "";
                 foreach (var ev in cascade.Events)
@@ -1118,7 +1127,9 @@ internal static class RuneDescriber
                     if (settings.Reaction == Il2Cpp.CascadeReactionType.DamageArea || settings.Reaction == Il2Cpp.CascadeReactionType.DirectDamage)
                     {
                         SchoolNames.TryGetValue(settings.Damage.Damage.DamageSchool, out var element);
-                        parts.Add($"a {element ?? ""} strike".Replace("  ", " "));
+                        parts.Add(share != null
+                            ? $"{HeroDamageToken(F(share.Evaluate(new FP { RawValue = 0 })))} {element} strike".Replace("  ", " ")
+                            : $"a {element ?? ""} strike".Replace("  ", " "));
                         continue;
                     }
                     var payloads = settings.SpecialEffect?.Payload?.Payloads;

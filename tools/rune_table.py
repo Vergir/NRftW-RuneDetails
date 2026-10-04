@@ -48,8 +48,8 @@ NOTES = {
     "arrowstorm": ("The skyward arrow does nothing; 10 arrows fall over ~2s onto a 2m circle 7m ahead, each with its own "
                    "explosion (no falloff): 24-25 on the hub dummy vs 29-30 for the Fungus bow's ×1.25 first shot."),
     "frostStream": SEGMENTS, "inferno": SEGMENTS,
-    "static": "Fires a chain lightning (70% weapon dmg) every 2.5s through a periodic modifier; the mod shows only the duration.",
-    "fireWalk": "Leaves a damaging fire trail through a periodic modifier; the mod shows only the duration.",
+    "static": "The strike is 70% of the hero's expected damage for their level (127 measured at level 25). The data says every 2.5s; in game numbers came every 1-1.5s (merged strikes?), to be checked.",
+    "fireWalk": "The trail only builds up Burn (Burn then deals 5% of base enemy HP per second). The data also has Fire damage around you every 1.1s, which never happened in game, so it is not shown.",
     "frontflipKick": KICK, "dropkick": KICK, "swipeKick": KICK, "turnbackKick": KICK,
 }
 
