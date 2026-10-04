@@ -58,7 +58,7 @@ internal static class RuneLayout
             PendingDedupFrames = 3;
             // One line break and a half-height empty line: the info panels' text adds paragraph spacing at each break,
             // so the plain empty line the Runes menu uses looks too tall there.
-            return Effect(description).TrimEnd() + "\n<size=50%> </size>\n" + Block(text, Slot(description));
+            return Effect(description).TrimEnd() + "\n<size=50%> </size>\n" + Block(text, Slot(description) ?? text.Type);
         }
         return text.Brief == null ? description : description.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", text.Brief);
     }
@@ -67,7 +67,7 @@ internal static class RuneLayout
     public static string RuneScreen(string sentence, string? description, RuneDescriber.RuneText text, DetailLevel level)
     {
         if (level == DetailLevel.Detailed && text.Lines.Count > 0)
-            return sentence.TrimEnd() + "\n\n" + Block(text, description == null ? null : Slot(description));
+            return sentence.TrimEnd() + "\n\n" + Block(text, (description == null ? null : Slot(description)) ?? text.Type);
         return text.Brief == null ? sentence : sentence.TrimEnd() + Prefs.HiddenFormat.Value.Replace("{extra}", text.Brief);
     }
 

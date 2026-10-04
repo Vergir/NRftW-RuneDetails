@@ -24,7 +24,8 @@ internal static class RuneDescriber
     /// <summary>What the mod says about one rune: the brief one-liner, the detailed mode's labelled lines, and the
     /// cost as the detailed mode words it ("5 Focus (needs 25) + 32 Focus/s for up to 5s"). CostNotable: the cost says
     /// more than the game's own cost row (a drain, or a shown cost that is not all paid).</summary>
-    internal sealed record RuneText(string? Brief, IReadOnlyList<string> Lines, string? Cost = null, bool CostNotable = false)
+    internal sealed record RuneText(string? Brief, IReadOnlyList<string> Lines, string? Cost = null, bool CostNotable = false,
+        string? Type = null)
     {
         public static readonly RuneText None = new(null, Array.Empty<string>());
     }
@@ -58,7 +59,30 @@ internal static class RuneDescriber
     {
         if (rune?.Actions == null || rune.Actions.Length == 0) return RuneText.None;
         var action = Resolve<ActionData>(rune.Actions[0].Id);
-        return action == null ? RuneText.None : new Walker().Action(action);
+        return action == null ? RuneText.None : new Walker().Action(action) with { Type = TypeName(rune) };
+    }
+
+    private static readonly HashSet<string> TwoHanded = new()
+        { "BoStaff", "CurvedGreatSword", "GreatAxe", "GreatClub", "GreatHammer", "GreatSword", "Halberd", "Katana", "Nunchaku", "Scythe" };
+
+    /// <summary>The rune's type from its data, for languages where the game's "Slot this Rune into a X" line is not
+    /// recognised (RuneLayout prefers the game's own words in English): "Utility Rune", "Bow", "Staff or Wand",
+    /// "Gauntlets", "Dual Daggers", "Two-Handed Weapon", "One-Handed Weapon", "Any Weapon".</summary>
+    private static string? TypeName(HeroRuneData rune)
+    {
+        if (rune.IsUtility) return "Utility Rune";
+        var classes = new HashSet<string>();
+        if (rune.CompatibleClasses != null)
+            foreach (var c in rune.CompatibleClasses) classes.Add(c.ToString());
+        if (classes.Count == 0) return null;
+        if (classes.Count >= 20) return "Any Weapon";
+        if (classes.SetEquals(new[] { "Bow", "Greatbow" }) || classes.SetEquals(new[] { "Bow" })) return "Bow";
+        if (classes.SetEquals(new[] { "Staff", "Wand" })) return "Staff or Wand";
+        if (classes.SetEquals(new[] { "Gauntlet" })) return "Gauntlets";
+        if (classes.SetEquals(new[] { "DoubleDagger" })) return "Dual Daggers";
+        if (classes.IsSubsetOf(TwoHanded) || (classes.Contains("Staff") && classes.Overlaps(TwoHanded))) return "Two-Handed Weapon";
+        if (!classes.Overlaps(TwoHanded)) return "One-Handed Weapon";
+        return string.Join(", ", classes);
     }
 
     /// <summary>Development audit: if UserData/RuneDetails.selftest.txt exists (lines "name guid", e.g. from
@@ -97,6 +121,10 @@ internal static class RuneDescriber
 
     private static string LevelDamageToken(float mult) => $"{Tok}{mult.ToString(CultureInfo.InvariantCulture)}{Tok}";
 
+    /// <summary>A fraction of the hero's expected damage for their level (ExpectedDamageAmountProvider @0x5DC0550 ->
+    /// GetExpectedHeroDamage: 14 / 50 / 125 / 250 at level 1 / 11 / 21 / 30), resolved live like the kicks.</summary>
+    private static string HeroDamageToken(float fraction) => $"{Tok}h{fraction.ToString(CultureInfo.InvariantCulture)}{Tok}";
+
     /// <summary>Replace level-damage tokens with the live number for the local hero's equipped weapon
     /// (StatsSystem.ExpectedStats.GetExpectedWeaponDamage = 2 x (1 + 5.8 x (itemLevel-1)/29) in build 29466),
     /// or a generic text outside a game.</summary>
@@ -109,6 +137,12 @@ internal static class RuneDescriber
         for (int i = 0; i < parts.Length; i++)
         {
             if (i % 2 == 0) { sb.Append(parts[i]); continue; }
+            if (parts[i].StartsWith("h"))
+            {
+                float fraction = float.Parse(parts[i].Substring(1), CultureInfo.InvariantCulture);
+                sb.Append(LiveExpectedHeroDamage() is { } hero ? $"~{Math.Round(fraction * hero)}" : $"{Pct(fraction)} of base hero");
+                continue;
+            }
             float mult = float.Parse(parts[i], CultureInfo.InvariantCulture);
             // Brief "~161 dmg, scales with weapon's level"; detailed "DMG: ~161 (scales with weapon's level)". "~", not
             // "≈": the info panels' font lacks "≈" and its fallback font's taller line pushed the line down.
@@ -137,6 +171,33 @@ internal static class RuneDescriber
             _liveValue = ComputeLiveExpectedWeaponDamage();
         }
         return _liveValue;
+    }
+
+    private static int _heroFrame = -1;
+    private static float? _heroValue;
+
+    /// <summary>The local hero's expected damage for their level, once per frame. Null outside a game.</summary>
+    private static float? LiveExpectedHeroDamage()
+    {
+        int frame = UnityEngine.Time.frameCount;
+        if (frame == _heroFrame) return _heroValue;
+        _heroFrame = frame;
+        _heroValue = null;
+        try
+        {
+            var view = LocalHero();
+            var f = view?.VerifiedFrame;
+            if (view != null && f != null)
+            {
+                float v = F(StatsSystem.ExpectedStats.GetExpectedHeroDamage(f, view.EntityRef));
+                if (v > 0) _heroValue = v;
+            }
+        }
+        catch (Exception e)
+        {
+            if (Failed.Add("hero")) RuneDetailsMod.Log.Warning("Live expected hero damage: " + e.Message);
+        }
+        return _heroValue;
     }
 
     private static HeroView? LocalHero()
@@ -1005,6 +1066,20 @@ internal static class RuneDescriber
             var effects = new List<string>();
             foreach (var m in md.Modifiers)
             {
+                // Cold/Electric/Heat/Plague Enchantment: the weapon's hits take this element (DamageSchoolOverrideModifier).
+                var school = m?.TryCast<DamageSchoolOverrideModifier>();
+                if (school != null)
+                {
+                    if (SchoolNames.TryGetValue(school.DamageSchool, out var element)) effects.Add($"weapon hits deal {element} dmg");
+                    continue;
+                }
+                var periodic = m?.TryCast<PeriodicModifier>();
+                if (periodic != null)
+                {
+                    var text = Periodic(periodic);
+                    if (text != null) effects.Add(text);
+                    continue;
+                }
                 var stat = m?.TryCast<StatModifier>();
                 var curve = stat?.ScalingData.Scaling;
                 if (stat == null || curve == null) continue;
@@ -1022,6 +1097,50 @@ internal static class RuneDescriber
                 return;
             }
             _buffs.Add(string.Join(", ", effects) + (time != null ? $" for {N(F(time.Duration))}s" : ""));
+        }
+
+        /// <summary>A status that spawns a cascade every Period seconds, or every Period metres walked (Static: a
+        /// Lightning strike every 2.5s; Fire Walk: Fire damage around you every 1.1s and a Burn trail every 1.58m).</summary>
+        private string? Periodic(PeriodicModifier periodic)
+        {
+            var parts = new List<string>();
+            if (periodic.Payload?.Payloads == null) return null;
+            foreach (var payload in periodic.Payload.Payloads)
+            {
+                var cascade = Resolve<CascadeStaticData>(payload?.TryCast<CascadePayload>()?.Cascade.Id ?? default);
+                if (cascade?.Events == null) continue;
+                float r = F(cascade.InstanceRadius);
+                string area = r >= 1 ? $" in {N(r)}m" : "";
+                foreach (var ev in cascade.Events)
+                {
+                    var settings = ev?.Settings;
+                    if (settings == null) continue;
+                    if (settings.Reaction == Il2Cpp.CascadeReactionType.DamageArea || settings.Reaction == Il2Cpp.CascadeReactionType.DirectDamage)
+                    {
+                        SchoolNames.TryGetValue(settings.Damage.Damage.DamageSchool, out var element);
+                        parts.Add($"a {element ?? ""} strike".Replace("  ", " "));
+                        continue;
+                    }
+                    var payloads = settings.SpecialEffect?.Payload?.Payloads;
+                    if (settings.Reaction != Il2Cpp.CascadeReactionType.SpecialEffect || payloads == null) continue;
+                    foreach (var p in payloads)
+                    {
+                        var damage = p?.TryCast<DamagePayload>();
+                        var fraction = damage?.Amount?.TryCast<ExpectedDamageAmountProvider>()?.ScalingData.Scaling;
+                        if (damage != null && fraction != null)
+                        {
+                            string element = damage.Type.ToString().Replace("Damage", "").Replace("Cold", "Ice");
+                            parts.Add($"{HeroDamageToken(F(fraction.Evaluate(new FP { RawValue = 0 })))} {element} dmg{area}");
+                            continue;
+                        }
+                        var buildup = p?.TryCast<DamageBuildupPayload>();
+                        if (buildup != null) parts.Add(periodic.PeriodType == PeriodType.Distance ? $"{buildup.Type} trail" : $"{buildup.Type} buildup");
+                    }
+                }
+            }
+            if (parts.Count == 0) return null;
+            string every = periodic.PeriodType == PeriodType.Distance ? $"every {N(F(periodic.Period))}m walked" : $"every {S(F(periodic.Period))}s";
+            return $"{string.Join(" + ", parts.Distinct())} {every}";
         }
 
         private void ChargingCost(ChargedMagicActionData magic)
