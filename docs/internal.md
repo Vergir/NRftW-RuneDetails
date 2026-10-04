@@ -185,6 +185,27 @@ armor.
   @0x5B875F0).
 - Multi-state actions (ChargedMagic, Bow, BowMultishot) override these: model separately or skip.
 
+### Power armour, stagger offset, friendly fire (traced 2026-10-04; scratch pa_scan / bso_scan / ff_scan)
+
+- **PowerArmour** (ActionData +0x70) = flat Poise Defense added after the 0..5 clamp while the action is not yet
+  interruptible (`PrecalculatePoiseDamage` @0x5C0F6C0, `TryGetPoiseHitReaction` @0x5C31C70): reduces flinch 1:1 and
+  counts for the stagger/interruption resistance curves; no damage reduction. Obtainable runes: 1.0 (+10 shown) on 144,
+  2.0 (+20) on 10 (Eruption, Fire Slam, the four Whirls, Glacial Spike, Hellfire, Pestilence, Thunderstrike), 0 on 68.
+- **BaseStaggerOffset** = −3 stagger-bar points per hit (bar 100; not ×10): Dashing Stab (all 13 hits), Piercing
+  Flurry (its 3 light hits). `GetStaggerDamage` @0x5C084F0.
+- **Rune hits use the weapon's poise:** a hero hit without an anonymous proxy is a basic attack
+  (`PayloadProxyGroup.IsBasicAttack` @0x5DCBC00) → (weapon poise + BasePoiseOffset) × (1 + Poise%)
+  (`DamageAPI.GetPoiseDamage` @0x5C08360). analysis/poise_stagger.md says otherwise for runes: needs correcting.
+- **Friendly fire:** every player melee/projectile hit can damage a co-op partner (Hero→Hero requests always pass,
+  `DamageAPI.IgnoreDamageRequest` @0x5C09BB0; no team check in collider/projectile hits), reduced by
+  `GetFriendlyFireCoefficient` @0x5C0FD90 (0.33 × level normaliser ≈ 0.33 at L1 … 0.055 at L30 × FriendlyDamageTaken)
+  and never lethal (`FriendlyFireOneHPRule`). The caster never takes their own rune damage. Areas follow their flags
+  (`CascadeDamageSettings.FriendlyFire`, `ExplosiveTrapData.AllowFriendlyFire`, ContinuousAreaDamageData
+  !DisableFriendlyFire): 33 obtainable runes' areas hit allies (list in the agent report of 2026-10-04; e.g. the Novas,
+  Fire Wall, Hellfire, Plague Column's burst, Tremor Slam/Wave, Scream, Drone Trap mine); Skyfall Shot/Smash's searing
+  strike, Static, Lightning Leap's strike spare them. Rotwheel's `cursedHostCascade` hits allies only (purpose unclear).
+  Not verified in game.
+
 ### "Typical enemy HP" = ExpectedHealth (traced 2026-10-02)
 
 - `ExpectedHealthAmountProvider` → `StatsSystem.ExpectedStats.GetExpectedHealth(f, target)` @0x5E026B0: hero target →

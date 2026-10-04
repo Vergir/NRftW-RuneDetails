@@ -224,7 +224,8 @@ internal static class RuneDescriber
         private readonly HashSet<DamageSchool> _schools = new();
         private readonly List<string> _healsDetailed = new();
         private bool _knockdown, _melee;
-        private int _meleeHits;
+        private int _meleeHits, _staggerHits;
+        private float _stagger; // BaseStaggerOffset of the hits that have one (Dashing Stab, Piercing Flurry: -3)
         private readonly List<string> _notes = new(); // detailed-only extra lines, e.g. "Mine: …"
         private const string KnockdownOnly = "knockdown, no damage";
         /// <summary>Where a weapon-scaled part inside a tail takes the weapon word (detailed "WPN", brief nothing).</summary>
@@ -364,9 +365,16 @@ internal static class RuneDescriber
                 // Against the standard push, not the weapon's: a fixed curve x the hit's KickbackMulti x the target's
                 // own multiplier (HitReactionResolverSystem.GetKickbackMulti @0x5C32C40). Normal attacks: 0.25-1.5.
                 else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: ×{N(kick)}");
+                // Stagger-bar points (bar 100, not x10), GetStaggerDamage @0x5C084F0.
+                if (_staggerHits > 0)
+                    hit.Add($"Stagger: {(_stagger > 0 ? "+" : "−")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits} of {_meleeHits} hits"));
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
             else if (_knockdown) lines.Add("Knockdown");
+            // Hyper armor: ActionData.PowerArmour is flat Poise Defense (x10 shown) on top of yours while the attack
+            // cannot be cancelled yet (PrecalculatePoiseDamage @0x5C0F6C0): fewer flinches, no damage reduction.
+            float armour = F(action.PowerArmour) * 10;
+            if (armour >= 0.5f) lines.Add($"Hyper armor: +{N(armour)} Poise DEF until Lockout");
             lines.AddRange(_notes);
             if (magic == null && action.TryCast<BowAttackData>() == null && action.TryCast<BowMultishotAttackData>() == null)
                 TimingLines(action, lines);
@@ -555,6 +563,8 @@ internal static class RuneDescriber
                 if (c == null || !InBranch(c.StartTime)) continue;
                 // ActionData.ResolveWeaponColliderDamage: the collider's own strike data replaces the action's.
                 var strike = c.UseAlternateStrikeData ? c.StrikeData : _base;
+                float stagger = F(strike.BaseStaggerOffset);
+                if (Math.Abs(stagger) >= 0.05f) { _staggerHits++; _stagger = stagger; }
                 mults.Add(Mult(strike, default));
                 _schools.Add(strike.DamageSchool);
                 _knockdown |= strike.KnockDown;
