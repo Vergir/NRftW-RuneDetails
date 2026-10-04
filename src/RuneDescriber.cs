@@ -368,9 +368,8 @@ internal static class RuneDescriber
             }
             else if (_knockdown) lines.Add("Knockdown");
             lines.AddRange(_notes);
-            // Cast time (trial 2026-10-04, throws first): when the thrown object leaves the hand, for runes that throw
-            // something instead of swinging (no weapon colliders) and are not charged spells. Not yet checked in game.
-            if (_release > 0 && !_melee && magic == null) lines.Add($"Cast time: {S(Real(_release) >= 0 ? Real(_release) : _release)}s");
+            if (magic == null && action.TryCast<BowAttackData>() == null && action.TryCast<BowMultishotAttackData>() == null)
+                TimingLines(action, lines);
 
             // Timings (first hit, lockout, invulnerable windows) are left out until they are modelled: the timeline's
             // section times did not match the game (2026-10-04: Crushing Flurry and Swipe Kick cannot be dodged out of
@@ -435,6 +434,100 @@ internal static class RuneDescriber
                 notable = true;
             }
             return (parts.Count > 0 ? string.Join(" + ", parts) : null, notable);
+        }
+
+        // ---------------- timings (docs/internal.md "Rune timings", traced 2026-10-04) ----------------
+        // Multi-state actions (charged spells, bow shots) override the interrupt logic and are left out.
+
+        private const float AttackInterruptByAction = 0.18f, AttackInterruptByActionLastInCombo = 0.5f; // heroPlayerControllerData
+
+        /// <summary>"Cast time: 0.6s · Lockout: 0.87s (0.95s after a combo)" and "Invulnerable: 0–0.73s", in real
+        /// seconds at attack speed 1. The action's length is its segments (Startup/Active/Recovery FrameCount at 60/s),
+        /// each retimed to N = ceil(max(1, FrameCount + RetimingFrames)) frames (InitializeSegmentPlaybackState
+        /// @0x5B80380); events and sections sit on the authored cursor.</summary>
+        private void TimingLines(ActionData action, List<string> lines)
+        {
+            var segments = action.Segments;
+            var tl = action.TimelineData;
+            if (segments == null || segments.Count == 0 || tl == null) return;
+            var frames = new List<(int Authored, int Real)>();
+            foreach (var seg in segments)
+                if (seg != null && seg.FrameCount > 0) frames.Add((seg.FrameCount, Math.Max(1, seg.FrameCount + seg.RetimingFrames)));
+            if (frames.Count == 0) return;
+            float end = frames.Sum(f => f.Authored) / 60f;
+
+            float RealTime(float t)
+            {
+                float x = t * 60, start = 0, real = 0;
+                foreach (var (authored, retimed) in frames)
+                {
+                    if (x < start + authored) return (real + (x - start) * retimed / authored) / 60f;
+                    start += authored;
+                    real += retimed;
+                }
+                return real / 60f;
+            }
+
+            // Cast time: the first damaging (or healing) event; release time for thrown objects.
+            float first = float.MaxValue, recovery = 0; // recovery: R, the last event end
+            if (tl.WeaponColliders != null)
+                foreach (var c in tl.WeaponColliders)
+                    if (c != null) { first = Math.Min(first, F(c.StartTime)); recovery = Math.Max(recovery, F(c.EndTime)); }
+            if (tl.ProjectileEvents != null)
+                foreach (var e in tl.ProjectileEvents)
+                    if (e != null) { float r = F(e.ReleaseTime) > 0 ? F(e.ReleaseTime) : F(e.SpawnTime); first = Math.Min(first, r); recovery = Math.Max(recovery, r); }
+            if (tl.SpawnEntityEvents != null)
+                foreach (var e in tl.SpawnEntityEvents)
+                    if (e != null)
+                    {
+                        first = Math.Min(first, F(e.spawnTime));
+                        float gone = e.fireAndForget || F(e.unspawnTime) < 0 ? F(e.spawnTime) : F(e.unspawnTime);
+                        recovery = Math.Max(recovery, gone);
+                    }
+            if (tl.SpecialEffectEvents != null)
+                foreach (var e in tl.SpecialEffectEvents)
+                    if (e != null) { first = Math.Min(first, F(e.StartTime)); recovery = Math.Max(recovery, F(e.StartTime)); }
+
+            var timing = new List<string>();
+            if (first < float.MaxValue) timing.Add($"Cast time: {S(RealTime(first))}s");
+
+            // Lockout: when a dodge can cut the rune short.
+            bool procedural = action.UseProceduralInterrupts && ((int)action.ActionType & 0x20E) != 0;
+            if (procedural && first < float.MaxValue)
+            {
+                // IsInterruptibleByAction @0x5B86B20 (procedural): progress through recovery p = (cursor - R) / (end - R),
+                // R = last event end + RecoveryTimeOffset; a dodge from p >= 0.18, or 0.5 when the rune ends a combo
+                // (after normal attacks; IsLastMoveInCombo @0x5B87260).
+                float r = Math.Min(end, recovery + F(action.RecoveryTimeOffset));
+                float free = RealTime(r + AttackInterruptByAction * (end - r)), combo = RealTime(r + AttackInterruptByActionLastInCombo * (end - r));
+                timing.Add($"Lockout: {S(free)}s" + (combo > free + 0.02f ? $" ({S(combo)}s after a combo)" : ""));
+            }
+            else if (tl.Sections != null)
+            {
+                // Non-procedural: the first InterruptibleByAll / ByAction section that lets a dodge through.
+                float dodge = float.MaxValue;
+                foreach (var sec in tl.Sections)
+                    if (sec != null && (sec.Id == QuantumActionSectionId.InterruptibleByAll
+                        || (sec.Id == QuantumActionSectionId.InterruptibleByAction && ((int)sec.Mask & (int)ActionType.Dodge) != 0)))
+                        dodge = Math.Min(dodge, F(sec.Start));
+                if (dodge < end) timing.Add($"Lockout: {S(RealTime(dodge))}s");
+            }
+            if (timing.Count > 0) lines.Add(string.Join(" · ", timing));
+
+            // Invulnerable: the whole action (ActionFlags.MakeInvincible) or sections 7 Invincibility / 47 Immune
+            // (TryIgnoreDamage @0x5C0F4F0, GetImmunityFlags @0x5BA3E00).
+            if (((int)action.ActionFlags & 4) != 0) lines.Add("Invulnerable: whole attack");
+            else if (tl.Sections != null)
+            {
+                var windows = new List<string>();
+                foreach (var sec in tl.Sections)
+                    if (sec != null && (sec.Id == QuantumActionSectionId.Invincibility || sec.Id == QuantumActionSectionId.ImmunityImmune))
+                    {
+                        float a = RealTime(F(sec.Start)), b = RealTime(Math.Min(end, F(sec.End)));
+                        if (b > a) windows.Add($"{S(a)}–{S(b)}s");
+                    }
+                if (windows.Count > 0) lines.Add("Invulnerable: " + string.Join(", ", windows));
+            }
         }
 
         private static bool HasAdditionalCostSection(ActionData action)

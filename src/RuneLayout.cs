@@ -18,6 +18,7 @@ namespace RuneDetails;
 internal static class RuneLayout
 {
     private const string LabelColor = "#9A9A9A", ValueColor = "#D9D9D9", NumberColor = "#F2E6BD";
+    private const string InvulnerableColor = "#5B9968"; // the game's "Positive" style: a rare effect worth spotting
 
     /// <summary>Words with a colour of their own, taken from the game (2026-10-04):
     /// elements = the TMP "Default Style Sheet" styles the game wraps element words and damage numbers in ([!sFire]);
@@ -87,7 +88,7 @@ internal static class RuneLayout
         foreach (Match m in Token.Matches(line))
         {
             if (m.Index > pos) sb.Append(Wrap(ValueColor, line.Substring(pos, m.Index - pos)));
-            string color = m.Groups["label"].Success ? LabelColor
+            string color = m.Groups["label"].Success ? (m.Value == "Invulnerable:" ? InvulnerableColor : LabelColor)
                 : m.Groups["word"].Success ? (cost || !Resources.Contains(m.Value) ? WordColors[m.Value] : ValueColor)
                 : NumberColor;
             sb.Append(Wrap(color, m.Value));
