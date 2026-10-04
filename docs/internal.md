@@ -160,6 +160,31 @@ HP.
 Two points are **inferred:** that the NPC expected health is exactly that curve, and that the payload goes through
 armor.
 
+### Rune timings: segments, procedural interrupts, invulnerability (traced 2026-10-04; scripts tools/timing/)
+
+- **Length:** every rune action has `ActionData.Segments` (Startup/Active/Recovery, FrameCount at 60/s). The state end
+  is Σ segment frames (`TryGetCurrentStartEndConverted` @0x5B92BD0). `TimelineData.Duration`, `StateInfos.End` and
+  `AttackSections` are not used (the shared 1.17 s is a 70-frame template leftover; 68 runes have a stale Duration).
+- **Real time:** per segment N_i = ceil(max(1, FC_i + RetimingFrames_i + ceil(FC_i × add)) / AttackSpeed)
+  (`InitializeSegmentPlaybackState` @0x5B80380, `PostProcessSegmentPlaybackState` @0x5B80970; add = 0 for runes, AS
+  = stat 72, 1.0 without gear). Real(t) = (Σ_{j<i} N_j + (60t − S_i)·N_i/FC_i)/60. Events, colliders and sections
+  are on the authored cursor; TimeScale / TimeScaleRegions do not apply to segmented actions. Lightning Leap's Active
+  131 → 105 frames moves its hits to 1.33 / 1.44 / 1.81 s (matches the video).
+- **Lockout, procedural** (`UseProceduralInterrupts` +0x5C, attack ActionType & 0x20E, player): the Interruptible
+  sections are ignored. R = max(collider End, projectile ReleaseTime, spawn unspawn/spawn, minion/special-effect
+  Start) + RecoveryTimeOffset; p = (cursor − R)/(end − R). Dodge/move from p ≥ 0.18, next attack/rune from p ≥ 0.05,
+  both 0.5 when `IsLastMoveInCombo` (usually: runes after a normal-attack combo; not after a weapon swap). Thresholds
+  from `heroPlayerControllerData`. Matches the user: Crushing Flurry dodge ~2.2 s, Swipe Kick only after the kick.
+- **Lockout, sections** (63 rune actions, e.g. Throw Axe / Knife, Regurgitate, Drone Trap): first Start of section 2
+  or 4 whose Mask has the dodge type. Throw Axe: released 0.333, free 0.467, ends 0.967; Throw Knife 0.717 / 0.917 /
+  1.183.
+- **Invulnerability:** `TryIgnoreDamage` @0x5C0F4F0 → `ActionData.IsInvincible` @0x5B892B0 = ActionFlags & 4 (whole
+  action) or section 7; `GetImmunityFlags` @0x5BA3E00: section 47 Immune = 15 (includes damage: invulnerable), 45
+  Sturdy = no flinch, 46 Resilient = no flinch/stagger (damage lands). ImmunitySectionsData is unused.
+- **PowerArmour** = extra poise defense, only while the action is not yet interruptible (`GetPoiseDefense`
+  @0x5B875F0).
+- Multi-state actions (ChargedMagic, Bow, BowMultishot) override these: model separately or skip.
+
 ### "Typical enemy HP" = ExpectedHealth (traced 2026-10-02)
 
 - `ExpectedHealthAmountProvider` → `StatsSystem.ExpectedStats.GetExpectedHealth(f, target)` @0x5E026B0: hero target →
