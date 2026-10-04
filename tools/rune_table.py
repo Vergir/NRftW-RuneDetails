@@ -39,7 +39,7 @@ SCHOOL_OVERRIDE = {"fireWalk": "Fire", "static": "Lightning", "curse": "Plague",
 # Runes that share a text share one footnote number in their table.
 SEGMENTS = "Spawns several segments that hit separately, so the /s is per segment."
 KICK = ("Kick numbers are live, from the equipped weapon's item level (here an expected weapon damage of {live}). "
-        "Outside a game they read \"N% base dmg\".")
+        "Outside a game they read \"N% base damage\".")
 NOTES = {
     "charredEarth": "A second \"Armageddon\": droppable from level 21, but its data is a Physical two-hit melee attack, not the inferno.",
     "plagueColumn": ("Each trap arms after 0.5s, shoots a homing bolt at an enemy within ~10m, then waits ~3s; it bursts "

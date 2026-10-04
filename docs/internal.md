@@ -132,7 +132,7 @@ to the frame so a missed reset cannot leak.
 - **In town (weapons put away):** `GetEquippedMainhand` is 0, and the game's own function would fall back to character
   level (it gave 1760 for Frontflip at the vendor). So the mod averages
   `ItemStatsSystem.GetExpectedWeaponDamage(ctx, ItemsAPI.GetLevel(item))` over `EquipmentSlot.RightHand1..3`.
-- **Outside a game:** `3100% base dmg`.
+- **Outside a game:** `3100% base damage`.
 - `RuntimeCharacterResolver.Asset` is null at runtime, and `PlayerMenuInteractionView` exists only in menus.
 - The current weapon-set index lives only inside the `EquipmentComponent` struct (`CurrentRightHandItemIndex`); reaching
   it through the interop is awkward.
@@ -260,7 +260,7 @@ armor.
     (`DrainTicksPerSecond`). 0.01 s → every frame.
   - Measured: Heal Aura 2 HP × 15/s = 30 HP/s, 32 Focus/s (161 Focus per 5 s channel); Channel 2 Focus × 15/s = 30
     Focus/s (124 in 4.1 s), 48 HP/s (246 HP), ends when it can't take 3 more HP or at 5 s; Frost Stream and Inferno
-    30 Focus/s, no cap (ran 6 s until Focus was gone), damage ticks ~50% weapon dmg, crits apply; Frost Stream 6
+    30 Focus/s, no cap (ran 6 s until Focus was gone), damage ticks ~50% weapon damage, crits apply; Frost Stream 6
     numbers per second (0.15 s → 10 frames).
   - History: 30/40 (right rate by accident), 22.5/32 (right clock, missing the rounding), 30/40 (misread video),
     30/32 (1093 step), now 30/32 with the 1092 step + rounding, which also fits Channel.
@@ -281,8 +281,8 @@ armor.
 
 | Case | Wording |
 |---|---|
-| not unique, sub-second repeat | `up to X% weapon dmg/s for Ns` |
-| unique | `X%/s` exact, e.g. Bolt 20% per 0.167 s = `120% weapon dmg/s` |
+| not unique, sub-second repeat | `up to X% weapon damage/s for Ns` |
+| unique | `X%/s` exact, e.g. Bolt 20% per 0.167 s = `120% weapon damage/s` |
 | repeat of 1 s or more | `X% every Ys for Ns` |
 | no duration and not channelled (Frigid Arc, Frost Step) | per-hit only |
 | moving (`MovementBehaviour` UseVelocity, peak velocity ≥ 5 m/s), not unique | `X% wave`: it passes an enemy within the 1 s dedupe window, so about one hit each (Tremor Slam 30 m/s, Plague Launch 20 m/s). Rotwheel (1.25 m/s) and Fire Wall (empty velocity curves) keep the rate |
@@ -322,19 +322,19 @@ armor.
   - **Never put parentheses inside it**, because everything is already inside one pair.
   - Round distances to whole metres.
   - Show a mean rather than a range where a range would be long (kicks in town).
-- **Brief style (2026-10-01):** per-hit damage only, no totals (`3 hits × 150–200% weapon dmg`); parts joined with
-  ` + ` and "weapon dmg" said once (`400% weapon dmg + 400% in 2.5m`); fast moving areas as `wave`
-  (`200% weapon dmg + 200% wave`); drop `1 shot ×`.
+- **Brief style (2026-10-01):** per-hit damage only, no totals (`3 hits × 150–200% weapon damage`); parts joined with
+  ` + ` and "weapon damage" said once (`400% weapon damage + 400% in 2.5m`); fast moving areas as `wave`
+  (`200% weapon damage + 200% wave`); drop `1 shot ×`.
 - **Wording they chose or approved:**
-  - `~161 dmg, scales with weapon's level`
-  - `70% weapon dmg + 30% of base enemy HP` (was "typical enemy HP"; chosen 2026-10-03)
-  - `up to 350% weapon dmg/s for 4s`
+  - `~161 damage, scales with weapon's level`
+  - `70% weapon damage + 30% of base enemy HP` (was "typical enemy HP"; chosen 2026-10-03)
+  - `up to 350% weapon damage/s for 4s`
   - `Heals 40 HP`
   - `Heals 30 HP/s to you and allies; drains 40 Focus/s while channelling` (numbers corrected 2026-10-03 to
     `Heals 22.5 HP/s to you and allies; drains 32 Focus/s while channelling, up to 5s; needs 25 Focus, spends 5`,
     then shortened on request to `Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s` (measured in game): a channel's drain is
     joined with " for "; "needs 25, spends 5" kept for detailed mode in `_details`)
-  - "weapon dmg", not "weapon damage"
+  - "weapon damage" in full (2026-10-04, was "weapon dmg"); brief never says "dmg" or "WPN", detailed keeps "DMG:" and "WPN"
 - **They like data-backed comparisons**, such as the kick and throw tables, and in-game verification. They will buy
   runes and test on the hub dummy if asked, and they expect a clear test protocol.
 - **They want it tested before shipping.** Screenshots are fine when they're not playing something else.
@@ -405,7 +405,7 @@ The README is now written for players; its old technical content follows unchang
 
 
 MelonLoader mod for No Rest for the Wicked: appends what a rune really does to its tooltip, e.g. `Heals 40 HP`,
-`up to 350% weapon dmg/s for 4s`, `70% weapon dmg + 30% of base enemy HP`. Display only; the Quantum simulation is
+`up to 350% weapon damage/s for 4s`, `70% weapon damage + 30% of base enemy HP`. Display only; the Quantum simulation is
 untouched. Sibling of Enchantment Details (enchantments, gems, facets).
 
 ### How it works
@@ -419,13 +419,13 @@ context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_
 | instant heal / restore | `Heals 40 HP`, `Restores 25 Durability` |
 | channelled aura | `Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s` (the game shows and requires 25 Focus but takes only 5) |
 | self buff | `+20% Overall Damage Dealt for 120s`, or `lasts 60s` for infusions |
-| melee rune attack | `350% weapon dmg`, `4 hits × 100% weapon dmg`, `3 hits × 150–200% weapon dmg` (per hit, no totals) |
-| projectiles / spells | `130/150/200% weapon dmg by charge`, `320–800% weapon dmg by charge`, `1100% weapon dmg in 6m`, `3–10 shots × 80% weapon dmg` (ammo fired) |
-| damage over time | `up to 350% weapon dmg/s for 4s` (repeating area, shared damage id: max one hit per second per enemy while inside), `270% weapon dmg every 1.5s for 5s` (repeat ≥ 1s); beams `120% weapon dmg/s; drains 20 Focus/s while channelling` (unique ids, every 1/60-rounded tick hits); no rate without a duration or channel |
-| throws | `70% weapon dmg + 30% of base enemy HP` (Throw Axe), `100% weapon dmg + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
-| waves and traps | `200% weapon dmg + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
+| melee rune attack | `350% weapon damage`, `4 hits × 100% weapon damage`, `3 hits × 150–200% weapon damage` (per hit, no totals) |
+| projectiles / spells | `130/150/200% weapon damage by charge`, `320–800% weapon damage by charge`, `1100% weapon damage in 6m`, `3–10 shots × 80% weapon damage` (ammo fired) |
+| damage over time | `up to 350% weapon damage/s for 4s` (repeating area, shared damage id: max one hit per second per enemy while inside), `270% weapon damage every 1.5s for 5s` (repeat ≥ 1s); beams `120% weapon damage/s; drains 20 Focus/s while channelling` (unique ids, every 1/60-rounded tick hits); no rate without a duration or channel |
+| throws | `70% weapon damage + 30% of base enemy HP` (Throw Axe), `100% weapon damage + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
+| waves and traps | `200% weapon damage + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
 | no damage | `knockdown, no damage` (Scream) |
-| kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `~161 dmg, scales with weapon's level` with a weapon drawn; `≈153 dmg, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base dmg, …` outside a game |
+| kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `~161 damage, scales with weapon's level` with a weapon drawn; `≈153 damage, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base damage, …` outside a game |
 
 Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). Item and
 utility-slot tooltips get the details appended in-line; the Runes menu shows only the effect's first sentence (it

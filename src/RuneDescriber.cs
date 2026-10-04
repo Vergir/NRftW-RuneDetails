@@ -144,9 +144,9 @@ internal static class RuneDescriber
                 continue;
             }
             float mult = float.Parse(parts[i], CultureInfo.InvariantCulture);
-            // Brief "~161 dmg, scales with weapon's level"; detailed "DMG: ~161 (scales with weapon's level)". "~", not
+            // Brief "~161 damage, scales with weapon's level"; detailed "DMG: ~161 (scales with weapon's level)". "~", not
             // "≈": the info panels' font lacks "≈" and its fallback font's taller line pushed the line down.
-            string amount = expected is { } e ? $"~{Math.Round(mult * e)}" + (detailed ? "" : " dmg") : $"{Pct(mult)} base dmg";
+            string amount = expected is { } e ? $"~{Math.Round(mult * e)}" + (detailed ? "" : " damage") : $"{Pct(mult)} base damage";
             sb.Append(amount + (detailed ? " (scales with weapon's level)" : ", scales with weapon's level"));
         }
         return sb.ToString();
@@ -297,9 +297,9 @@ internal static class RuneDescriber
     private static string Label(string enumName) =>
         Labels.TryGetValue(enumName, out var l) ? l : CamelSplit.Replace(enumName, " ");
 
-    /// <summary>One damage source of a rune: "{Prefix}{Count}{Pct}[ weapon dmg]{Unit}{Tail}", e.g. "3 hits × " "150–200%",
+    /// <summary>One damage source of a rune: "{Prefix}{Count}{Pct}[ weapon damage]{Unit}{Tail}", e.g. "3 hits × " "150–200%",
     /// "up to " "350%" "/s" " for 4s". The parts are joined with " + " and only the first weapon-scaled one says
-    /// "weapon dmg": "400% weapon dmg + 400% in 2.5m". Weapon = false: Pct is a complete text (kicks, % of enemy HP).
+    /// "weapon damage": "400% weapon damage + 400% in 2.5m". Weapon = false: Pct is a complete text (kicks, % of enemy HP).
     /// Total = the weapon-damage multiple one cast deals when it is exactly known (for damage per Focus), else -1.</summary>
     private sealed record Dmg(string Pct, string Count = "", string Unit = "", string Tail = "", string Prefix = "", bool Weapon = true,
         float Total = -1);
@@ -390,7 +390,7 @@ internal static class RuneDescriber
 
             // Brief: what it does, then what the channel costs to keep it up: "Heals 30 HP/s to you and allies for
             // 32 Focus/s, up to 5s". A drain with nothing before it (Rejuvenate) stands alone.
-            var parts = _heals.Concat(_buffs).Append(DamageText(" weapon dmg")).OfType<string>().Distinct().ToList();
+            var parts = _heals.Concat(_buffs).Append(DamageText(" weapon damage")).OfType<string>().Distinct().ToList();
             string text = string.Join("; ", parts);
             if (_costs.Count > 0) text = parts.Count > 0 ? $"{text} for {string.Join(" + ", _costs)}" : "drains " + string.Join(" + ", _costs);
             var lines = DetailedLines(action, magic);
@@ -399,7 +399,7 @@ internal static class RuneDescriber
         }
 
         /// <summary>everyPart: say the weapon word on every weapon-scaled part ("300% WPN + 1000% WPN in 3m", detailed);
-        /// otherwise only on the first ("300% weapon dmg + 1000% in 3m", brief).</summary>
+        /// otherwise only on the first ("300% weapon damage + 1000% in 3m", brief).</summary>
         private string? DamageText(string weaponWord, bool everyPart = false)
         {
             var texts = new List<string>();
@@ -1070,7 +1070,7 @@ internal static class RuneDescriber
                 var school = m?.TryCast<DamageSchoolOverrideModifier>();
                 if (school != null)
                 {
-                    if (SchoolNames.TryGetValue(school.DamageSchool, out var element)) effects.Add($"weapon hits deal {element} dmg");
+                    if (SchoolNames.TryGetValue(school.DamageSchool, out var element)) effects.Add($"weapon hits deal {element} damage");
                     continue;
                 }
                 var periodic = m?.TryCast<PeriodicModifier>();
@@ -1141,7 +1141,7 @@ internal static class RuneDescriber
                         if (damage != null && fraction != null)
                         {
                             string element = damage.Type.ToString().Replace("Damage", "").Replace("Cold", "Ice");
-                            parts.Add($"{HeroDamageToken(F(fraction.Evaluate(new FP { RawValue = 0 })))} {element} dmg{area}");
+                            parts.Add($"{HeroDamageToken(F(fraction.Evaluate(new FP { RawValue = 0 })))} {element} damage{area}");
                             continue;
                         }
                         var buildup = p?.TryCast<DamageBuildupPayload>();
