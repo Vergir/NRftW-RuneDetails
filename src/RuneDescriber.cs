@@ -336,73 +336,33 @@ internal static class RuneDescriber
             // Cost: the channel's drain and Cost vs shown cost.
             var cost = new List<string>();
             float perSecond = magic == null ? 0 : DrainTicksPerSecond(magic.ChargingCostTime.RawValue);
+            float cap = _channelled ? ChannelCap(tl) : 0;
             foreach (var (resource, amount) in Totals(magic?.ChargingCost))
-                cost.Add($"{Math.Round(amount * perSecond)} {resource}/s");
+                cost.Add($"{Math.Round(amount * perSecond)} {resource}/s{(cap > 0 ? $" for up to {S(cap)}s" : "")}");
             cost.AddRange(_details);
             if (cost.Count > 0) lines.Add("Cost: " + string.Join(" · ", cost));
 
-            // Hit: poise and knockback against the weapon's normal hits (melee only: for projectiles and areas the
-            // action's values are one layer of several). Poise in the game's display units (x10).
+            // Hit: poise and knockback as formulas on the weapon's own values, "Poise: (WPN + 10) × 0.8",
+            // "Knockback: WPN × 2" (melee only: for projectiles and areas the action's values are one layer of several).
+            // Poise offset in the game's display units (x10). Hit = (weapon poise + offset) x (1 + Poise%).
             if (damage != null && _melee)
             {
                 var hit = new List<string>();
-                float poiseBase = F(_base.BasePoiseOffset) * 10, poisePct = F(_base.PoisePercentageModifier);
-                string poise = (Math.Abs(poiseBase) >= 0.5f ? $"{(poiseBase > 0 ? "+" : "")}{N(poiseBase)}" : "")
-                    + (Math.Abs(poisePct) >= 0.005f ? (Math.Abs(poiseBase) >= 0.5f ? ", then " : "") + $"{(poisePct > 0 ? "+" : "−")}{Pct(Math.Abs(poisePct))}" : "");
-                if (poise.Length > 0) hit.Add($"Poise: {poise} vs normal hits");
-                string? knock = _knockdown || _base.KnockDown ? "knockdown" : Knockback(F(_base.KickbackMulti));
-                if (knock != null) hit.Add("Knockback: " + knock);
+                float offset = F(_base.BasePoiseOffset) * 10, factor = 1 + F(_base.PoisePercentageModifier);
+                bool hasOffset = Math.Abs(offset) >= 0.5f, hasFactor = Math.Abs(factor - 1) >= 0.005f;
+                string plus = hasOffset ? $"WPN {(offset > 0 ? "+" : "−")} {N(Math.Abs(offset))}" : "WPN";
+                if (hasOffset || hasFactor)
+                    hit.Add("Poise: " + (hasFactor ? $"{(hasOffset ? $"({plus})" : plus)} × {N(factor)}" : plus));
+                float kick = F(_base.KickbackMulti);
+                if (_knockdown || _base.KnockDown) hit.Add("Knockback: knockdown");
+                else if (Math.Abs(kick - 1) >= 0.005f) hit.Add($"Knockback: WPN × {N(kick)}");
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
             else if (damage != null && _knockdown) lines.Add("Knockback: knockdown");
 
-            // Timing (seconds from the press, at attack speed 1).
-            var timing = new List<string>();
-            if (tl?.Sections != null)
-            {
-                var invulnerable = new List<string>();
-                float dodge = float.MaxValue, attack = float.MaxValue, release = -1;
-                foreach (var sec in tl.Sections)
-                {
-                    if (sec == null) continue;
-                    float start = Real(F(sec.Start)), end = Real(F(sec.End));
-                    if (start < 0 && sec.Id != QuantumActionSectionId.ReleaseMagic) continue; // not on the chosen branch
-                    switch (sec.Id)
-                    {
-                        // Invincibility, or the Immune level (ImmunityFlags 15 includes Damage).
-                        case QuantumActionSectionId.Invincibility:
-                        case QuantumActionSectionId.ImmunityImmune:
-                            invulnerable.Add($"{S(start)}–{S(end)}s");
-                            break;
-                        // When the rune can be cut short: InterruptibleByAll, or ByAction for the action types in Mask.
-                        case QuantumActionSectionId.InterruptibleByAll:
-                        case QuantumActionSectionId.InterruptibleByAction:
-                            int mask = (int)sec.Mask;
-                            if (sec.Id == QuantumActionSectionId.InterruptibleByAll || (mask & (int)ActionType.Dodge) != 0) dodge = Math.Min(dodge, start);
-                            if (sec.Id == QuantumActionSectionId.InterruptibleByAll || (mask & ((int)ActionType.Melee | (int)ActionType.Ranged | (int)ActionType.Special)) != 0)
-                                attack = Math.Min(attack, start);
-                            break;
-                        case QuantumActionSectionId.ReleaseMagic:
-                            release = start;
-                            break;
-                    }
-                }
-                if (invulnerable.Count > 0 && (magic == null || _channelled)) timing.Add("invulnerable " + string.Join(", ", invulnerable));
-                if (_channelled)
-                {
-                    if (release > 0) timing.Add($"starts {S(release)}s");
-                    float cap = ChannelCap(tl);
-                    if (cap > 0) timing.Add($"hold up to {S(cap)}s");
-                }
-                else if (magic == null) // a charged spell's times depend on how long it is charged
-                {
-                    float first = _firstHit < float.MaxValue ? Real(_firstHit) : -1;
-                    if (first >= 0 && damage != null) timing.Add($"first hit {S(first)}s");
-                    if (dodge < float.MaxValue)
-                        timing.Add($"lockout {S(dodge)}s" + (attack < float.MaxValue && attack > dodge + 0.02f ? $", attacks {S(attack)}s" : ""));
-                }
-            }
-            if (timing.Count > 0) lines.Add("Timing: " + string.Join(" · ", timing));
+            // Timings (first hit, lockout, invulnerable windows) are left out until they are modelled: the timeline's
+            // section times did not match the game (2026-10-04: Crushing Flurry and Swipe Kick cannot be dodged out of
+            // where their Interruptible windows start; attack segments are rescaled at run time). See docs/internal.md.
 
             // Efficiency per point of what the press actually spends.
             var paid = Totals(action.Cost);
@@ -434,11 +394,6 @@ internal static class RuneDescriber
             }
             return lines;
         }
-
-        /// <summary>KickbackMulti in words: normal attacks range from 0.25 (rapier) to 1.5 (great axe); nothing for
-        /// the usual range.</summary>
-        private static string? Knockback(float multi) =>
-            multi <= 0.001f ? "none" : multi < 0.5f ? "light" : multi >= 3f ? "very strong" : multi >= 1.75f ? "strong" : null;
 
         private static bool HasAdditionalCostSection(ActionData action)
         {

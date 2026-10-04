@@ -331,6 +331,11 @@ armor.
    only), `Timing:` (invulnerable windows from sections 7/47, first hit, `lockout` = first Interruptible window that
    allows a dodge, `, attacks` when later; mapped along the chosen branch; channels: starts / hold up to; nothing for
    charged spells), `Efficiency:` (% WPN per resource when every part is a known weapon multiple; HP or Focus per
-   resource for channels). **Unverified:** lockout / first-hit times (Lightning Leap's events lie past its 1.17 s
-   timeline and its in-game hits came earlier than the data; Swipe Kick's lockout 0.37 s is before its 0.6 s hit).
+   resource for channels). **Timings removed 2026-10-04** (first hit, lockout, invulnerable windows): in game you
+   cannot dodge out of Crushing Flurry after its first swing nor out of Swipe Kick before the kick, although their
+   Interruptible sections start there; Lightning Leap's events lie past its 1.17 s timeline. Attack segments are
+   rescaled at run time (`ActionComponent.PostProcessSegmentPlaybackState`, `AttackSections`); model that first.
+   Changed the same day on request: colours (grey labels, light values #D9D9D9, numbers and the slot header in the
+   game's highlight gold #F2E6BD), `Poise: (WPN + 10) × 0.8`, `Knockback: WPN × 2` (KickbackMulti; "WPN" = the
+   weapon's base push, while its normal attacks have their own 0.25–1.5), the channel cap moved into `Cost:`.
    **At release time, remind the user:** "hold a key (e.g. Shift) to see the detailed text" as an option for 1.1.
