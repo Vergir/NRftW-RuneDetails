@@ -397,7 +397,7 @@ armor.
    "Negative" #F15E4B; Knockdown = "Heavy" #B79052; numbers = "Highlight" #F2E6BD. Rare effects (obtainable runes):
    KnockDown 36, invulnerability 26 (hidden with timings), friendly fire 1 (Drone Trap mine), BaseStaggerOffset 2
    (Dashing Stab, Piercing Flurry), PowerArmour 153 (meaning not traced: hyper armor?), DestroyDestructible 77.
-   **At release time, remind the user:** "hold a key (e.g. Shift) to see the detailed text" as an option for 1.1.
+   Idea, not planned: "hold a key (e.g. Shift) to see the detailed text". The user knows it; do not bring it up again.
 
 ## Appendix: the developer README before 1.0 (moved 2026-10-04)
 
