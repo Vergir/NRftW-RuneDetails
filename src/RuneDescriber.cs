@@ -576,14 +576,13 @@ internal static class RuneDescriber
             return max;
         }
 
-        /// <summary>Raw FP time a sim frame takes off a cascade's repeat timer, as measured in game: the timer resets to
-        /// its interval after each tick (CascadeInstanceComponent.Update @0x5A2B160), so a tick comes every
-        /// ceil(interval / frame) frames, at least one. Measured 2026-10-03 (user's 60 fps videos, Heal Aura, no gear):
-        /// 1.5 HP every 3 frames (102 heals in 5.07s, 20/s) for the 0.05s (3277 raw) timer. A code reading with the
-        /// 1092 step (65536/60 truncated) predicted 4 frames and was wrong, so the effective step is 1093.</summary>
-        private const double CascadeFrameRaw = 1093;
+        /// <summary>Raw FP time a sim frame takes off a cascade's repeat timer (Frame.DeltaTime, 65536/60 truncated):
+        /// CascadeInstanceComponent.Update @0x5A2B160 executes at &lt;= 0 and resets the timer to the interval, so a tick
+        /// comes every ceil(interval / 1092) frames, at least one. Verified 2026-10-04 frame by frame in the user's 60 fps
+        /// video (Heal Aura, no gear): a heal every 0.067s (4 frames, 15/s) for the 0.05s (3277 raw) timer.</summary>
+        private const double CascadeFrameRaw = 1092;
 
-        /// <summary>Seconds between a cascade's ticks: 0.05s -> 3 frames (20/s), 0.01s -> every frame. 0 = no repeat.</summary>
+        /// <summary>Seconds between a cascade's ticks: 0.05s -> 4 frames (15/s), 0.15s -> 10, 0.01s -> every frame. 0 = no repeat.</summary>
         private static float CascadeEvery(long raw) => raw <= 0 ? 0 : Math.Max(1, (int)Math.Ceiling(raw / CascadeFrameRaw)) / 60f;
 
         /// <summary>Ticks per second of a channelling drain, on a different clock than the heal: ChargedMagicActionData.
@@ -636,6 +635,10 @@ internal static class RuneDescriber
                 var curve = provider?.ScalingData.Scaling;
                 if (curve == null) continue;
                 float v = F(curve.Evaluate(new FP { RawValue = 0 })); // runes are always requested at level 0
+                // Each periodic amount lands as a whole number (measured 2026-10-04, no gear, Heal 40 exact: Heal Aura's
+                // 1.5 HP and Channel's 1.9 Focus both arrive as +2 per tick). Where the game rounds is not traced, and
+                // round-half-up vs ceiling is untested; both give 2 here.
+                if (repeat > 0) v = (float)Math.Round(v, MidpointRounding.AwayFromZero);
                 if (v <= 0) continue;
                 string who = allies ? " to you and allies" : "";
                 string verb = unit == "HP" ? "Heals" : "Restores";

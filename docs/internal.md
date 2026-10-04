@@ -202,17 +202,22 @@ armor.
 **Timing and dedupe:**
 - The sim runs at 60 Hz (`quantumDeterministicConfig UpdateFPS = 60`; frame = 1092 raw FP). The cascade repeat timer
   is reset after each tick, so ticks are `ceil(repeat / frame)` frames apart: 0.05 → 0.067 s, 0.15 → 0.167 s.
-  **Measured 2026-10-03** (user's 60 fps videos, Heal Aura, no gear), **two clocks**:
-  - **Cascade repeats** (heals, damage areas): 1.5 HP every **3 frames** (102 heals in 5.07 s; 20/s) for the 0.05 s
-    timer (3277 raw). A code reading with a 1092-raw frame step predicted 4 frames and was wrong; the mod uses an
-    effective step of 1093: a tick every `ceil(raw / 1093)` frames, at least one (`CascadeEvery`). 0.15 s → 9 frames,
-    0.25 s → 15, 0.01 s → every frame.
+  **Verified 2026-10-04 frame by frame** (user's 60 fps videos, no gear), **two clocks plus rounding**:
+  - **Cascade repeats** (heals, damage areas): `CascadeInstanceComponent.Update` @0x5A2B160 subtracts
+    `Frame.DeltaTime` (1092 raw) and executes at ≤ 0, so a tick every `ceil(raw / 1092)` frames (`CascadeEvery`):
+    0.05 s → 4 frames (seen: HP rises at 0.067 / 0.133 / 0.2 / 0.267 s), 0.15 s → 10, 0.25 s → 16, 0.01 s → 1.
+  - **Periodic amounts arrive as whole numbers:** Heal Aura's 1.5 HP and Channel's 1.9 Focus both land as +2 per tick
+    (plain Heal = exactly 40, so no hidden Healing bonus). Not traced where (not in `HealthPayload.GetAmount`
+    @0x5DC7300 nor `HealthComponent.Heal`); the mod rounds half away from zero (ceiling untested).
   - **Channel drains** (`ChargedMagicActionData.UpdateCharge` @0x5A1EC80): the action's segmented delta (1092 or 1093
-    raw, 65536 per 60 frames), pays when the timer drops **below** 0, resets to `ChargingCostTime`: 0.05 s (3276 raw) →
-    3 or 4 frames, ~16.1/s (`DrainTicksPerSecond` simulates 10 s). Measured: 161 Focus over the 5 s channel = 32/s.
-    0.01 s → every frame (Frost Stream / Inferno 0.5 per tick = 30 Focus/s; not verified). Attack speed rescales it.
-  - History: the mod first had 30/40 (right heal, wrong drain), then 22.5/32 from the code reading (ef8d222), then
-    30/40 from a misread first video (08896eb), now 30/32.
+    raw, 65536 per 60 frames), pays when the timer drops **below** 0, resets to `ChargingCostTime`: 0.05 s → ~16.1/s
+    (`DrainTicksPerSecond`). 0.01 s → every frame.
+  - Measured: Heal Aura 2 HP × 15/s = 30 HP/s, 32 Focus/s (161 Focus per 5 s channel); Channel 2 Focus × 15/s = 30
+    Focus/s (124 in 4.1 s), 48 HP/s (246 HP), ends when it can't take 3 more HP or at 5 s; Frost Stream and Inferno
+    30 Focus/s, no cap (ran 6 s until Focus was gone), damage ticks ~50% weapon dmg, crits apply; Frost Stream 6
+    numbers per second (0.15 s → 10 frames).
+  - History: 30/40 (right rate by accident), 22.5/32 (right clock, missing the rounding), 30/40 (misread video),
+    30/32 (1093 step), now 30/32 with the 1092 step + rounding, which also fits Channel.
 - **Cost vs AdditionalCost:** the game shows and requires Cost + AdditionalCost (`ActionData.CanAffordAction`
   @0x5A1B1B0) but pays only Cost at the press (`ActionData.Execute` @0x5B84AC0). AdditionalCost is paid when an
   `ApplyAdditionalCost` (43) timeline section activates (`ActionData.Update` @0x5B84F60): 108 of 116 actions with one
@@ -242,11 +247,11 @@ armor.
   - Heal: +40 HP instantly, 50 Focus.
   - Heal Aura (traced + measured 2026-10-03): 5 Focus at the press (needs 25 to start; the 20 is never paid; seen
     in game: 185 → 180). Nothing heals until `ReleaseMagic` at 0.93 s releases the cascade; then 1.5 HP every 3 frames
-    (30 HP/s, × the target's Healing stat) to you and allies within 5 m, while the drain takes 2 Focus ~16 times a
-    second (32/s, × Focus Cost): ~0.94 HP per Focus. The channel ends on release, at 5 s, or when a drain tick can't
+    → +2 HP every 4 frames (30 HP/s, × the target's Healing stat) to you and allies within 5 m, while the drain takes
+    2 Focus ~16 times a second (32/s, × Focus Cost): ~0.94 HP per Focus. The channel ends on release, at 5 s, or when a drain tick can't
     be paid. In game: 93 → 247 HP, 180 → 19 Focus over one full channel (154 HP for 161 Focus).
-  - Channel: 5 Health at the press (needs 25), drains 3 Health per drain tick (~48/s), restores 1.9 Focus every
-    3 frames (38/s) from 0.93 s; ends on release, at 5 s, or when Focus is full. The Health drain can't kill you (needs HP > cost).
+  - Channel: 5 Health at the press (needs 25), drains 3 Health per drain tick (~48/s), restores 1.9 → +2 Focus
+    every 4 frames (30/s) from 0.93 s; ends on release, at 5 s, or when Focus is full. The Health drain can't kill you (needs HP > cost).
   - Pulse of Health: +25 HP and +20% Max Health for 120 s.
 - Unobtainable, so moot (re-verified 2026-10-01): **Gale of Speed** is a byte copy of Damage Surge (+20% Overall
   Damage Dealt, no speed). The four **Afflictions** are identical: one ×1 hit with DamageSchool Cold (Heat Affliction
@@ -307,6 +312,12 @@ armor.
 7. **Performance:** `LiveExpectedWeaponDamage` runs `FindObjectsOfType<HeroView>()` per kick tooltip. That's fine, but
    it could be cached per frame.
 8. **In-game settings row text** for the new mod, and a README written for players.
+10. **Lightning Leap** (measured 2026-10-04 on the dummy, normal hit 8): hits 28, 25, 17 (merged into one rising
+   number: the game appends hits on the same target while its number is fresh, `DamageNumberView.SetDamageValue(append)`
+   via `PlayerControllerView.GetDamageNumberView`, `EntityDamageNumber.CreateTime/LastUpdateTime`), then 23, 23.
+   25/23/23 = the three 300% parts (all reach one enemy; strike +1 flat). 17 = a Shock proc (20% base enemy HP, dummy
+   ~L3). 28 = not explained: maybe the 100% lightning zone (`ContinuousAreaDamageData` r 3 m, linger 1 s) hitting
+   more than once, or a crit. The zone is not in the tooltip yet.
 9. **Brief / Detailed modes** (decided 2026-10-03): a setting `Mode` = Off / Brief / Detailed (dropdown row
    `RD_Runes`), shown in **all three views** (the rune screen's `runeSlotDescription` has a ContentSizeFitter and
    grows; only its ". " split was the problem, and we set its text ourselves after the split). Detailed list: per-hit
