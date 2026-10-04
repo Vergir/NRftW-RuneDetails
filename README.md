@@ -1,66 +1,52 @@
 # Rune Details
 
-A [MelonLoader](https://github.com/LavaGang/MelonLoader) mod for **No Rest for the Wicked** that shows what every rune
-really does: its damage as a multiple of your weapon's, heals, buffs, costs and timings, right in the rune's tooltip.
-Nothing is changed, only shown.
+A [MelonLoader](https://github.com/LavaGang/MelonLoader) mod for **No Rest for the Wicked** that adds what a rune
+really does to its text: damage as a multiple of weapon damage, heals, buffs, costs and timings. Display only; the
+Quantum simulation is untouched.
 
 Download: [Nexus Mods](https://www.nexusmods.com/norestforthewicked/mods/) · [GitHub releases](https://github.com/vergir/NRftW-RuneDetails/releases/latest)
 
-## Features
+What players see is described on the Nexus page ([docs/nexus-description.bbcode](docs/nexus-description.bbcode)); every
+rune's output in both modes is in [docs/rune-tooltips.html](docs/rune-tooltips.html); how each number is found, the
+traced game code and the in-game measurements are in [docs/internal.md](docs/internal.md).
 
-* **Brief** (the default): one grey note at the end of the rune text.
-  * `(3 hits × 150–200% weapon dmg)`, `(300% weapon dmg + 200% wave)`, `(10 × 100% weapon dmg in 1.5m)`
-  * `(Heals 40 HP)`, `(Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s)`, `(+20% Overall Damage Dealt for 120s)`
-  * `(70% weapon dmg + 30% of base enemy HP)`, `(~161 dmg, scales with weapon's level)`, `(Teleports 4m)`
-* **Detailed**: separate lines under the rune text.
-  * `Cost: 25 Focus to cast, 32 Focus/s to channel`
-  * `DMG: 300% WPN + 300% WPN in 2.5m (hits allies), Fire`
-  * `Poise DMG: (WPN + 10) × 0.8 per hit · Knockback: ×0.5`
-  * `Cast Time: 0.5s · Lockout: 2.2s (combo: 2.3s)`, `Invulnerable: 0–0.73s`, `+10 Poise while casting`
-  * `Efficiency: 4.8% WPN DMG per Focus`
-* **Every screen that shows runes:** item tooltips, vendors, utility slots and the Runes menu. Where the game shows no
-  rune type or cost (vendors, the Runes menu), Detailed adds them first.
-* **Live numbers:** kick damage follows your weapon's item level, and a few runes follow your character level.
+## Build
 
-Choose **Off**, **Brief** or **Detailed** at the end of **Options > Gameplay** (*Rune Details*).
+* `dotnet build -c Release` builds and copies `RuneDetails.dll` to `<game>/Mods` (`-p:DeployToGame=false` to skip,
+  `-p:GameDir=...` for another install). With HotReload in `<game>/Plugins` the running game picks up new builds.
+* `pwsh ./package.ps1` builds the release zip into `dist/RuneDetails.zip` (`Mods/RuneDetails.dll`, README, LICENSE,
+  CHANGELOG).
+* Needs MelonLoader 0.7.3's generated interop assemblies in the game folder (start the game once with MelonLoader).
 
-## Good to know
+## Layout
 
-* **WPN** is your weapon's damage. Rune hits take your weapon's damage and element, unless the rune has its own element.
-* **Base enemy HP** (throws, Drone Trap, Plague Column): the health a normal enemy of the target's level has (70 at
-  level 1, 160 at 11, 360 at 21, 950 at 30), before elite, boss and co-op multipliers. The hit is the same against a
-  boss as against a normal enemy of that level.
-* **Lockout:** when you can dodge out of the rune. After normal attacks the rune counts as a combo finisher and locks
-  you in longer: the *combo* time.
-* **Friendly fire:** in co-op every hit can damage a partner (heavily reduced, never lethal). Area damage says whether
-  it hits allies.
-* Times assume attack speed 1. The numbers are read from the game data when the tooltip is drawn, so they follow
-  balance patches.
+| Path | What |
+|---|---|
+| `src/RuneDescriber.cs` | Walks a rune's Quantum action data into the brief text and the detailed lines (`RuneText`). |
+| `src/RuneLayout.cs` | Puts that text into the game's: brief as a grey `(…)`, detailed as coloured lines. |
+| `src/Patches/RuneDescriptionPatches.cs` | `HeroItemDataAsset.GetDescription` postfix; which view asks (utility slot, Runes menu). |
+| `src/TypeCostDedup.cs` | Removes our type/cost lines where the game shows its own row. |
+| `src/SettingsRows.cs`, `src/Prefs.cs` | The Off / Brief / Detailed dropdown in Options > Gameplay; `[RuneDetails]` preferences. |
+| `tools/rune_table.py` | Builds `docs/rune-tooltips.html` from the in-game self-test. |
+| `tools/timing/` | Scripts used to trace rune timings (need the workspace's qdb reader). |
 
-## Installation
+## Preferences
 
-1. Install [MelonLoader](https://github.com/LavaGang/MelonLoader/releases) 0.7.3 or newer and start the game once.
-2. Extract `RuneDetails.zip` into the game folder, so that `RuneDetails.dll` ends up in the `Mods` folder.
-
-Uninstall: delete `Mods\RuneDetails.dll`. The settings stay in `UserData\MelonPreferences.cfg` under `[RuneDetails]`.
-
-## Settings
-
-`UserData\MelonPreferences.cfg`, section `[RuneDetails]`:
+`UserData/MelonPreferences.cfg`, section `[RuneDetails]`:
 
 | Key | Default | |
 |---|---|---|
 | `Enabled` | `true` | Master switch. |
-| `Mode` | `Brief` | `Off`, `Brief` or `Detailed`. Also in Options > Gameplay. |
+| `Mode` | `Brief` | `Off`, `Brief` or `Detailed`; also in Options > Gameplay. |
 | `HiddenFormat` | ` <color=#9A9A9A>({extra})</color>` | How the brief note is appended. |
-| `AddSettingsRows` | `true` | Add the setting to Options > Gameplay. |
-| `Debug` | `false` | Log every rune's details when first shown. |
+| `AddSettingsRows` | `true` | Add the dropdown to Options > Gameplay. |
+| `Debug` | `false` | Log every rune's text when first shown. |
 
-## Build
+## Self-test
 
-`dotnet build -c Release` builds and copies the DLL to `<game>/Mods` (`-p:DeployToGame=false` to skip,
-`-p:GameDir=...` for another install). `pwsh ./package.ps1` builds the release zip into `dist/`. How the numbers are
-found: [docs/internal.md](docs/internal.md); every rune's text in both modes: [docs/rune-tooltips.html](docs/rune-tooltips.html).
+Put `name guid` lines (from the workspace's `analysis/rune_inventory.csv`) in `UserData/RuneDetails.selftest.txt`. On
+the first scene load the mod writes every rune's brief and detailed text to `RuneDetails.selftest.out.txt`;
+`python tools/rune_table.py <out file>` turns it into the HTML table. Delete both files afterwards.
 
 ## License
 
