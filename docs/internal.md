@@ -342,4 +342,13 @@ armor.
    Changed the same day on request: colours (grey labels, light values #D9D9D9, numbers and the slot header in the
    game's highlight gold #F2E6BD), `Poise: (WPN + 10) × 0.8`, `Knockback: WPN × 2` (KickbackMulti; "WPN" = the
    weapon's base push, while its normal attacks have their own 0.25–1.5), the channel cap moved into `Cost:`.
+   **2026-10-04 later (0a6dc9a, 69c611e):** per view: inventory/utility hover = effect text, empty line, lines (Cost
+   only when notable); vendor (`VendorScreenV2.ShowItemInfoForSlot` context) and Runes menu = + gold weapon classes and
+   Cost first (the game shows neither there). Labels `DMG:`, `Poise DMG: … per hit`, `Knockdown` alone, `% WPN DMG per
+   Focus`. Colours from the game: elements from its TMP "Default Style Sheet" in resources.assets (Fire #F09000, Ice
+   #80C0F0, Lightning #D0C000, Plague #9060F0, Bleed #F07070, Physical #E0E0E0; tooltips write [!sFire]…[/s]); Focus
+   #F3EC04 (rune-slot Focus-cost text); Stamina #44A11D (bright end of the HUD ring texture); Health + warnings =
+   "Negative" #F15E4B; Knockdown = "Heavy" #B79052; numbers = "Highlight" #F2E6BD. Rare effects (obtainable runes):
+   KnockDown 36, invulnerability 26 (hidden with timings), friendly fire 1 (Drone Trap mine), BaseStaggerOffset 2
+   (Dashing Stab, Piercing Flurry), PowerArmour 153 (meaning not traced: hyper armor?), DestroyDestructible 77.
    **At release time, remind the user:** "hold a key (e.g. Shift) to see the detailed text" as an option for 1.1.
