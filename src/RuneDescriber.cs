@@ -227,9 +227,12 @@ internal static class RuneDescriber
         private int _meleeHits;
         private readonly List<string> _notes = new(); // detailed-only extra lines, e.g. "Mine: …"
         private const string KnockdownOnly = "knockdown, no damage";
+        /// <summary>Where a weapon-scaled part inside a tail takes the weapon word (detailed "WPN", brief nothing).</summary>
+        private const string WeaponMark = "\u0001";
         private float _restorePerSecond;
         private string? _restoreUnit;
         private float _firstHit = float.MaxValue;
+        private float _release = -1; // first thrown projectile's release time (Cast time)
         private float _healPerSecond, _healInstant;
         private DamageBalanceData _base;
         private bool _charged;
@@ -303,15 +306,17 @@ internal static class RuneDescriber
             return new RuneText(text.Length > 0 ? text : null, lines, costText, notable);
         }
 
-        private string? DamageText(string weaponWord)
+        /// <summary>everyPart: say the weapon word on every weapon-scaled part ("300% WPN + 1000% WPN in 3m", detailed);
+        /// otherwise only on the first ("300% weapon dmg + 1000% in 3m", brief).</summary>
+        private string? DamageText(string weaponWord, bool everyPart = false)
         {
             var texts = new List<string>();
             bool named = false;
             foreach (var d in _damage.Distinct())
             {
-                string unit = d.Weapon && !named ? weaponWord + d.Unit : d.Unit;
+                string unit = d.Weapon && (everyPart || !named) ? weaponWord + d.Unit : d.Unit;
                 named |= d.Weapon;
-                texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{d.Tail}");
+                texts.Add($"{d.Prefix}{d.Count}{d.Pct}{unit}{d.Tail.Replace(WeaponMark, everyPart ? weaponWord : "")}");
             }
             return texts.Count > 0 ? string.Join(" + ", texts.Distinct()) : null;
         }
@@ -331,7 +336,7 @@ internal static class RuneDescriber
 
             // Damage, in the weapon-damage shorthand; an element only when the rune sets its own (Physical runes hit
             // with the weapon's element: DamageAPI.GetDamageSchool keeps an elemental school, else the weapon's).
-            string? damage = DamageText(" WPN");
+            string? damage = DamageText(" WPN", everyPart: true);
             if (damage == KnockdownOnly) damage = null; // the detailed mode says "Knockdown" on its own line
             if (damage != null)
             {
@@ -363,6 +368,9 @@ internal static class RuneDescriber
             }
             else if (_knockdown) lines.Add("Knockdown");
             lines.AddRange(_notes);
+            // Cast time (trial 2026-10-04, throws first): when the thrown object leaves the hand, for runes that throw
+            // something instead of swinging (no weapon colliders) and are not charged spells. Not yet checked in game.
+            if (_release > 0 && !_melee && magic == null) lines.Add($"Cast time: {S(Real(_release) >= 0 ? Real(_release) : _release)}s");
 
             // Timings (first hit, lockout, invulnerable windows) are left out until they are modelled: the timeline's
             // section times did not match the game (2026-10-04: Crushing Flurry and Swipe Kick cannot be dodged out of
@@ -563,6 +571,8 @@ internal static class RuneDescriber
                 if (spawnsEntities && e.SpawnParams.UseSpawnDirection && F(dir.Y) >= 0.5f * Math.Abs(F(dir.Z))) continue;
                 var p = Resolve<ProjectileData>(e.OverrideProjectile.Id);
                 _firstHit = Math.Min(_firstHit, F(e.SpawnTime));
+                float release = F(e.ReleaseTime) > 0 ? F(e.ReleaseTime) : F(e.SpawnTime);
+                if (e.OverrideProjectile.Id.Value != 0 && (_release < 0 || release < _release)) _release = release;
                 _schools.Add(_base.DamageSchool);
                 if (p == null) { ammoShots++; continue; } // fires the equipped ammo: only the action's own layer is known
                 count++;
@@ -606,7 +616,7 @@ internal static class RuneDescriber
             if (explodes)
             {
                 float boom = Mult(expl[expl.Length - 1]);
-                tail += $" + {Pct(boom)} in {N(blast)}m";
+                tail += $" + {Pct(boom)}{WeaponMark} in {N(blast)}m"; // detailed: "+ 1000% WPN in 3m"
                 if (total > 0) total += boom;
             }
             if (health != null) tail += " + " + health;

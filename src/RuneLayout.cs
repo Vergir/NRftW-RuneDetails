@@ -75,15 +75,21 @@ internal static class RuneLayout
         return string.Join("\n", lines);
     }
 
-    /// <summary>One detailed line as closed colour runs (TMP keeps a colour stack, so nothing is left open).</summary>
+    private static readonly HashSet<string> Resources = new() { "Focus", "Stamina", "Health", "HP" };
+
+    /// <summary>One detailed line as closed colour runs (TMP keeps a colour stack, so nothing is left open). Resource
+    /// words get their colour only in the Cost line, to keep the rest calm.</summary>
     private static string Colour(string line)
     {
+        bool cost = line.StartsWith("Cost:");
         var sb = new StringBuilder();
         int pos = 0;
         foreach (Match m in Token.Matches(line))
         {
             if (m.Index > pos) sb.Append(Wrap(ValueColor, line.Substring(pos, m.Index - pos)));
-            string color = m.Groups["label"].Success ? LabelColor : m.Groups["word"].Success ? WordColors[m.Value] : NumberColor;
+            string color = m.Groups["label"].Success ? LabelColor
+                : m.Groups["word"].Success ? (cost || !Resources.Contains(m.Value) ? WordColors[m.Value] : ValueColor)
+                : NumberColor;
             sb.Append(Wrap(color, m.Value));
             pos = m.Index + m.Length;
         }
@@ -102,13 +108,13 @@ internal static class RuneLayout
         return cut < 0 ? "" : description.Substring(cut).Trim();
     }
 
-    /// <summary>"One-Handed Weapon", "Wand or Staff", "Any Weapon"; null for utility runes or other languages.</summary>
+    /// <summary>"One-Handed Weapon", "Wand or Staff", "Any Weapon", "Utility Rune"; null in other languages.</summary>
     private static string? Slot(string description)
     {
         int cut = description.IndexOf('\n');
         var m = SlotLine.Match(Tags.Replace(cut < 0 ? description : description.Substring(0, cut), "").Trim());
         if (!m.Success) return null;
         string slot = m.Groups["slot"].Value.Replace(" or a ", " or ").Replace(" or an ", " or ");
-        return slot == "Utility Slot" ? null : slot == "Weapon" ? "Any Weapon" : slot;
+        return slot == "Utility Slot" ? "Utility Rune" : slot == "Weapon" ? "Any Weapon" : slot;
     }
 }
