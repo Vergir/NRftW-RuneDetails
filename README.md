@@ -27,6 +27,7 @@ traced game code and the in-game measurements are in [docs/internal.md](docs/int
 | `src/Patches/RuneDescriptionPatches.cs` | `HeroItemDataAsset.GetDescription` postfix; which view asks (utility slot, Runes menu). |
 | `src/TypeCostDedup.cs` | Removes our type/cost lines where the game shows its own row. |
 | `src/SettingsRows.cs`, `src/Prefs.cs` | The Off / Brief / Detailed dropdown in Options > Gameplay; `[RuneDetails]` preferences. |
+| `src/Shared/SettingsRowsKit.cs` | Settings-row helpers shared by the author's mods (vendored copy; do not edit here). |
 | `tools/rune_table.py` | Builds `docs/rune-tooltips.html` from the in-game self-test. |
 | `tools/timing/` | Scripts used to trace rune timings (need the workspace's qdb reader). |
 

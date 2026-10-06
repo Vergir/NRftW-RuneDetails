@@ -36,25 +36,29 @@
   </ItemGroup>
 
   <!--
-    Deploy to <game>/Mods. A running game keeps the DLL it loaded at startup open: Windows refuses to overwrite it but
-    allows renaming it. So an existing copy is moved aside to *.hotreload-old (HotReload deletes those on the next launch)
-    and the new build is copied in, where HotReload picks it up.
+    Deploy to <game>/Mods. MelonLoader HotReload loads Mods/ from shadow copies, so the files there are never locked and
+    a plain copy works while the game runs; HotReload picks the new build up.
   -->
   <Target Name="DeployToGame" AfterTargets="Build" Condition="'$(DeployToGame)' == 'true' And Exists('$(GameDir)\Mods')">
-    <PropertyGroup>
-      <_DeployStamp>$([System.DateTime]::UtcNow.Ticks)</_DeployStamp>
-    </PropertyGroup>
     <ItemGroup>
       <_DeployFile Include="$(TargetPath);$(TargetDir)$(TargetName).pdb" />
       <_DeployFile Remove="@(_DeployFile)" Condition="!Exists('%(FullPath)')" />
-      <_DeployExisting Include="@(_DeployFile->'$(GameDir)\Mods\%(Filename)%(Extension)')" />
-      <_DeployExisting Remove="@(_DeployExisting)" Condition="!Exists('%(FullPath)')" />
     </ItemGroup>
-    <Move SourceFiles="@(_DeployExisting)" DestinationFiles="@(_DeployExisting->'%(FullPath).$(_DeployStamp).hotreload-old')" ContinueOnError="true" />
     <Copy SourceFiles="@(_DeployFile)" DestinationFolder="$(GameDir)\Mods" Retries="3" RetryDelayMilliseconds="300" ContinueOnError="true" />
-    <!-- Drop moved-aside copies nothing holds any more (fails silently for the ones the running game still has open). -->
-    <Exec Condition="'$(OS)' == 'Windows_NT'" Command="del /f /q &quot;$(GameDir)\Mods\*.hotreload-old&quot; 2&gt;nul" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" />
     <Message Importance="high" Text="$(TargetFileName) -> $(GameDir)\Mods" />
+  </Target>
+
+  <!--
+    src/Shared/SettingsRowsKit.cs is a vendored copy of the workspace's canonical ../Shared/SettingsRowsKit.cs
+    (../Shared/sync-shared.ps1 copies it in). Warn when they differ; a clone without ../Shared builds silently.
+  -->
+  <Target Name="CheckSharedKit" BeforeTargets="CoreCompile" Condition="Exists('$(MSBuildProjectDirectory)\..\Shared\SettingsRowsKit.cs')">
+    <PropertyGroup>
+      <_SharedKitCanonical>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\Shared\SettingsRowsKit.cs').Replace('&#13;', ''))</_SharedKitCanonical>
+      <_SharedKitVendored Condition="Exists('$(MSBuildProjectDirectory)\src\Shared\SettingsRowsKit.cs')">$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\src\Shared\SettingsRowsKit.cs').Replace('&#13;', ''))</_SharedKitVendored>
+    </PropertyGroup>
+    <Warning Condition="'$(_SharedKitCanonical)' != '$(_SharedKitVendored)'" Code="SHAREDKIT"
+             Text="src/Shared/SettingsRowsKit.cs differs from the canonical ../Shared/SettingsRowsKit.cs: move the change there and run ../Shared/sync-shared.ps1." />
   </Target>
 
 </Project>
