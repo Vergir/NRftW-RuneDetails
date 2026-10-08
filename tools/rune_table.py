@@ -206,7 +206,8 @@ def main():
     for x in inventory:
         rows[category(x)].append(x)
 
-    live = next((f"{float(h.split(': ')[1]):.1f}" for h in header if h.startswith("live expected weapon damage")), "?")
+    live = next((h.split(': ')[1] for h in header if h.startswith("live expected weapon damage")), "?")
+    live = f"{float(live):.1f}" if live.replace(".", "", 1).isdigit() else "?"  # "n/a" when run outside a game
     anchor = lambda key: "s-" + re.sub(r"[^a-z0-9]+", "-", key.lower())
     out = [
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">",

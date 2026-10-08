@@ -309,7 +309,11 @@ armor.
 - **Plague Column:** 3 traps, 15 s; each arms after 0.5 s, detects an enemy within ~10 m, fires one homing bolt 0.5 s
   later, stays fired 3 s, repeats; bursts (r 2 m, ~0 damage) after 15 s or when an enemy touches it. The bolt's
   payload: Plague damage = 15% of a typical enemy's HP at the target's level.
-- **Scream** = ×0 damage, knockdown only.
+- **Scream** = ×0 damage, knockdown only, in a 6 m cylinder around the caster (not a cone, despite "in front of you").
+- **Area radius** (`CascadeInstanceSettings.GetTargetShape` @0x5924CA0) = instance radius × shape radius ×
+  `DamageArea.SizeMultiplierDueToCharge`. A spell's own cascades (Scream, the Novas) run on an instance of radius 1
+  (`ChargedMagicActionData.SpawnMagic` @0x5A1F6F1); their size curve is ×3 → ×6, so 6 m (Scream releases at full charge)
+  and 3–6 m (Novas).
 - **Charge curves:** an empty curve is ×1; real ones are sampled over `MinCharge..MaxCharge` (Fire Nova 320–800%,
   Chain Lightning 100–200%).
 - **Charged Bolt, Fire Wall, Plague Launch and Frost Stream** drop from level 21 (staff/wand), so the user couldn't
@@ -420,11 +424,11 @@ context-free resolver `AssetBase.Resolve` (`RuneDescriber`, mirrors `tools/rune_
 | channelled aura | `Heals 30 HP/s to you and allies for 32 Focus/s, up to 5s` (the game shows and requires 25 Focus but takes only 5) |
 | self buff | `+20% Overall Damage Dealt for 120s`, or `lasts 60s` for infusions |
 | melee rune attack | `350% weapon damage`, `4 hits × 100% weapon damage`, `3 hits × 150–200% weapon damage` (per hit, no totals) |
-| projectiles / spells | `130/150/200% weapon damage by charge`, `320–800% weapon damage by charge`, `1100% weapon damage in 6m`, `3–10 shots × 80% weapon damage` (ammo fired) |
+| projectiles / spells | `130/150/200% weapon damage by charge`, `320–800% weapon damage by charge in 3–6m` (Novas), `1100% weapon damage in 6m`, `3–10 shots × 80% weapon damage` (ammo fired) |
 | damage over time | `up to 350% weapon damage/s for 4s` (repeating area, shared damage id: max one hit per second per enemy while inside), `270% weapon damage every 1.5s for 5s` (repeat ≥ 1s); beams `120% weapon damage/s; drains 20 Focus/s while channelling` (unique ids, every 1/60-rounded tick hits); no rate without a duration or channel |
 | throws | `70% weapon damage + 30% of base enemy HP` (Throw Axe), `100% weapon damage + 20% of base enemy HP` (Throw Knife): projectile `DamagePayload` with `ExpectedHealthAmountProvider` = fraction of the target's expected health (typical HP for its level: 70 at 1, 310 at 19, 950 at 30) |
 | waves and traps | `200% weapon damage + 200% wave` (Tremor Slam: a fast moving area hits each enemy about once), `3 traps for 15s, each: 15% of base enemy HP every ~3.5s` (Plague Column) |
-| no damage | `knockdown, no damage` (Scream) |
+| no damage | `knockdown in 6m, no damage` (Scream) |
 | kicks (Swipe/Turnback/Frontflip Kick, Dropkick) | `~161 damage, scales with weapon's level` with a weapon drawn; `≈153 damage, …` in town (weapons put away: mean over the main-hand weapon sets); `3100% base damage, …` outside a game |
 
 Heals are before your Healing stat and damage is a multiple of the weapon's Damage stat (runes have no level). Item and

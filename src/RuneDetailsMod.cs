@@ -2,7 +2,7 @@ using RuneDetails;
 using System;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(RuneDetailsMod), "Rune Details", "1.0.0", "vergir")]
+[assembly: MelonInfo(typeof(RuneDetailsMod), "Rune Details", "1.1.0", "vergir")]
 [assembly: MelonGame("Moon Studios", "NoRestForTheWicked")]
 // MelonLoader would otherwise apply every [HarmonyPatch] in this assembly by itself, ignoring Enabled (and the INERT build).
 [assembly: HarmonyDontPatchAll]

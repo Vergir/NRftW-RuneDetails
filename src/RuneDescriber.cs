@@ -110,7 +110,8 @@ internal static class RuneDescriber
             output.Add($"{line.Substring(0, cut)}	{guid}	{text}");
         }
         int blank = output.Count(l => l.EndsWith("(none)"));
-        if (blank == output.Count(l => !l.StartsWith("#"))) return; // asset database not ready yet: retry on the next scene
+        // Asset database not ready yet (every rune blank, or the asset delegate throws): retry on the next scene.
+        if (blank + output.Count(l => l.Contains("\tERROR ")) == output.Count(l => !l.StartsWith("#"))) return;
         _selfTestDone = true;
         output.Insert(0, $"# {blank} runes without details");
         System.IO.File.WriteAllLines(System.IO.Path.ChangeExtension(input, ".out.txt"), output);
@@ -316,7 +317,9 @@ internal static class RuneDescriber
         private int _meleeHits, _staggerHits;
         private float _stagger; // BaseStaggerOffset of the hits that have one (Dashing Stab, Piercing Flurry: -3)
         private readonly List<string> _notes = new(); // detailed-only extra lines, e.g. "Mine: …"
-        private const string KnockdownOnly = "knockdown, no damage";
+        /// <summary>A knockdown-only area (Scream): "knockdown in 6m, no damage".</summary>
+        private const string Knockdown = "knockdown", NoDamage = ", no damage";
+        private string _knockdownArea = ""; // " in 6m" for the detailed "Knockdown" line
         /// <summary>Where a weapon-scaled part inside a tail takes the weapon word (detailed "WPN", brief nothing).</summary>
         private const string WeaponMark = "\u0001";
         /// <summary>Area parts that do / do not hit co-op allies (CascadeDamageSettings.FriendlyFire): detailed only.</summary>
@@ -431,7 +434,7 @@ internal static class RuneDescriber
             // Damage, in the weapon-damage shorthand; an element only when the rune sets its own (Physical runes hit
             // with the weapon's element: DamageAPI.GetDamageSchool keeps an elemental school, else the weapon's).
             string? damage = DamageText(" WPN", everyPart: true);
-            if (damage == KnockdownOnly) damage = null; // the detailed mode says "Knockdown" on its own line
+            if (_damage.All(d => d.Pct == Knockdown)) damage = null; // the detailed mode says "Knockdown" on its own line
             if (damage != null)
             {
                 var own = _schools.Where(SchoolNames.ContainsKey).Select(x => SchoolNames[x]).Distinct().ToList();
@@ -464,7 +467,7 @@ internal static class RuneDescriber
                     hit.Add($"Stagger: {(_stagger > 0 ? "+" : "-")}{N(Math.Abs(_stagger))}" + (_staggerHits == _meleeHits ? (_meleeHits > 1 ? " per hit" : "") : $" on {_staggerHits}/{_meleeHits} hits"));
                 if (hit.Count > 0) lines.Add(string.Join(" · ", hit));
             }
-            else if (_knockdown) lines.Add("Knockdown");
+            else if (_knockdown) lines.Add("Knockdown" + _knockdownArea);
             lines.AddRange(_notes);
             if (magic == null && action.TryCast<BowAttackData>() == null && action.TryCast<BowMultishotAttackData>() == null)
                 TimingLines(action, lines);
@@ -907,20 +910,18 @@ internal static class RuneDescriber
                     float m = Mult(_base, s.Damage.Damage);
                     _schools.Add(s.Damage.Damage.DamageSchool != DamageSchool.None ? s.Damage.Damage.DamageSchool : _base.DamageSchool);
                     _knockdown |= s.Damage.Damage.KnockDown;
-                    float lo = 1, hi = 1;
-                    var curve = s.Damage.DamageMultiplierDueToCharge;
-                    if (curve != null && curve.Count > 0) // an empty curve means x1
-                    {
-                        // Sampled over the spell's charge range; uncharged actions release at full charge.
-                        hi = F(curve.Evaluate(new FP { RawValue = (long)(_maxCharge * One) }));
-                        lo = _charged || _minCharge < _maxCharge ? F(curve.Evaluate(new FP { RawValue = (long)(_minCharge * One) })) : hi;
-                    }
+                    var (lo, hi) = ByCharge(s.Damage.DamageMultiplierDueToCharge);
+                    var (rLo, rHi) = AreaRadius(s, owner);
+                    string area = rHi >= 2 ? $" in {Meters(rLo, rHi)}" : "";
                     if (m * hi < 0.005f)
                     {
                         if (s.Damage.Damage.KnockDown || _base.KnockDown)
                         {
-                            _damage.Add(new Dmg(KnockdownOnly, Weapon: false)); // Scream
+                            _damage.Add(new Dmg(Knockdown, Tail: area + NoDamage, Weapon: false)); // Scream
                             _knockdown = true;
+                            // It knocks down co-op partners too when the area's FriendlyFire flag is set (seen in game).
+                            _knockdownArea = area + (s.Reaction != Il2Cpp.CascadeReactionType.DamageArea ? ""
+                                : s.Damage.FriendlyFire ? " (hits allies)" : " (doesn't hit allies)");
                         }
                         break;
                     }
@@ -939,8 +940,7 @@ internal static class RuneDescriber
                         break;
                     }
                     d = Repeat(d, m * hi, repeat, duration, unique, _channelled);
-                    float radius = owner == null ? 0 : F(owner.InstanceRadius) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
-                    if (radius >= 2) d = d with { Tail = d.Tail + $" in {N(radius)}m" };
+                    d = d with { Tail = d.Tail + area };
                     // Every direct hit can hurt co-op partners; areas follow their flag (docs/internal.md).
                     if (s.Reaction == Il2Cpp.CascadeReactionType.DamageArea) d = d with { Tail = d.Tail + (s.Damage.FriendlyFire ? HitsAllies : SparesAllies) };
                     _damage.Add(d);
@@ -951,8 +951,7 @@ internal static class RuneDescriber
                     var fx = s.SpecialEffect;
                     if (fx == null) break;
                     bool allies = ((int)fx.Targeting & (int)Il2Cpp.CascadeTargetingMode.Friendlies) != 0;
-                    float reach = owner == null ? 0 : F(owner.InstanceRadius) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
-                    Payloads(fx.Payload, repeat, allies, reach);
+                    Payloads(fx.Payload, repeat, allies, AreaRadius(s, owner).Hi);
                     break;
                 }
                 case Il2Cpp.CascadeReactionType.SpawnEntity:
@@ -960,6 +959,29 @@ internal static class RuneDescriber
                     break;
             }
         }
+
+        /// <summary>A charge curve sampled over the spell's charge range (an empty curve means x1); uncharged actions
+        /// release at full charge.</summary>
+        private (float Lo, float Hi) ByCharge(FPCurve? curve)
+        {
+            if (curve == null || curve.Count == 0) return (1, 1);
+            float hi = F(curve.Evaluate(new FP { RawValue = (long)(_maxCharge * One) }));
+            float lo = _charged || _minCharge < _maxCharge ? F(curve.Evaluate(new FP { RawValue = (long)(_minCharge * One) })) : hi;
+            return (lo, hi);
+        }
+
+        /// <summary>Radius of a cascade event's area (CascadeInstanceSettings.GetTargetShape @0x5924CA0): the instance's
+        /// radius × the shape's × DamageArea.SizeMultiplierDueToCharge. A spell's own cascades (owner null: Scream, the
+        /// Novas) get an instance of radius 1 (ChargedMagicActionData.SpawnMagic @0x5A1F6F1).</summary>
+        private (float Lo, float Hi) AreaRadius(Il2Cpp.CascadeInstanceSettings s, CascadeStaticData? owner)
+        {
+            float r = (owner == null ? 1 : F(owner.InstanceRadius)) * (s.DamageArea.Shape == null ? 1 : F(s.DamageArea.Shape.Radius));
+            var (lo, hi) = ByCharge(s.DamageArea.SizeMultiplierDueToCharge);
+            return (r * lo, r * hi);
+        }
+
+        /// <summary>"6m" or "3–6m".</summary>
+        private static string Meters(float lo, float hi) => N(lo) == N(hi) ? $"{N(hi)}m" : $"{N(lo)}–{N(hi)}m";
 
         /// <summary>How often a repeating cascade damages one enemy (analysis/cascade_rehit.md, traced 2026-09-29):
         /// the sim runs at 60 Hz and the repeat timer is reset, so ticks are ceil(repeat / frame) frames apart

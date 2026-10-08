@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+* Scream and the four Novas show their area radius (Scream: 6m; Novas: 3–6m by charge).
+* Detailed mode: Scream says whether its knockdown hits allies (it does).
+* The settings row shares its code with the other mods of the series.
+
 ## 1.0.0
 
 First public release.
